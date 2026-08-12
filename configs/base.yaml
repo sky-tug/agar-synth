@@ -1,0 +1,140 @@
+# =============================================================================
+# TEMEL PROTOKOL -- tum kosularda SABIT
+# =============================================================================
+# Bu dosya Faz 5'te PROTOCOL.md ile birlikte DONDURULACAK.
+# Buradaki her sayi bir karardir; degistirirsen decisions.md'ye gerekcesiyle
+# yaz ve etkilenen kosulari YENIDEN kostur. Sonuclari gordukten sonra yapilan
+# ayar "cherry-picking" olarak okunur.
+#
+# Onemli sinirlama (makalede yazilacak): model tum konfigurasyonlarda sabit.
+# Bulgular VERI hakkindadir, model hakkinda degil.
+# =============================================================================
+
+model:
+  # YOLO26 nano. NMS'siz, kucuk nesne odakli etiket atamasi (STAL).
+  # Not: ultralytics surumu YOLO26'yi tanimiyorsa yolo11n.pt'ye dus ve
+  # bunu decisions.md'ye yaz -- sessizce degistirme.
+  weights: yolo26n.pt
+  task: detect
+
+data:
+  root: data/processed          # convert.py ciktisi
+  splits_dir: splits            # git'e commit edilen stem listeleri
+  nc: 5
+  names: [S.aureus, B.subtilis, P.aeruginosa, E.coli, C.albicans]
+  # ^ SIRA convert.py ile AYNI olmak zorunda. Degisirse tum etiketler bozulur.
+
+train:
+  # --- GORUNTU BOYUTU: projenin en kritik tek hiperparametresi -------------
+  # AGAR lower-resolution goruntuleri 2048x2048.
+  # Demo paketten olculen koloni boyutlari (orijinal pikselde):
+  #     C.albicans  medyan 27.5 px   (min 14)
+  #     S.aureus    medyan 29.0 px   (min 24)
+  #     E.coli      medyan 128 px
+  # imgsz=640  -> C.albicans 8.6 px  ... P5 basinin stride'i 8, tespit imkansiza yakin
+  # imgsz=1024 -> 13.8 px
+  # imgsz=1280 -> 17.2 px            <- secilen
+  # imgsz=1536 -> 20.6 px
+  # AGAR makalesi de dusuk cozunurlukte en iyi sonucu tam boyuta yakin alarak
+  # aldi (mAP %59,4). 640 secersen baseline AGAR'in altinda kalir ve Faz 2'nin
+  # kapisi "baseline makul mu" sorusuna HAYIR cevabi verir.
+  # Bedeli: VRAM ve sure ~ imgsz^2. 1280, 640'in ~4 katidir.
+  # Karar: 1280 ile basla. VRAM yetmezse batch'i dusur, imgsz'yi DUSURME.
+  imgsz: 1280
+
+  epochs: 150
+  patience: 50               # erken durdurma; sure olcumu icin loglanacak
+  batch: 8                   # VRAM'e gore scripts/train.py --batch ile ezilir
+  optimizer: AdamW
+  lr0: 0.001
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3.0
+  cos_lr: true
+  deterministic: true
+  workers: 8
+  amp: true                  # karma hassasiyet; sure olcumu bununla yapilir
+  val: true
+  plots: false               # grid'de gereksiz I/O
+  save_period: -1
+
+  # --- Kucuk nesne icin ------------------------------------------------------
+  # Sayim isi: bir plakta 125'e kadar koloni var, varsayilan 300 yeterli ama
+  # kalabalik plaklarda kirpma riskine karsi yukseltildi.
+  max_det: 1000
+  nms_iou: 0.7               # YOLO26 NMS'siz calisiyorsa yok sayilir
+
+# =============================================================================
+# AUGMENTATION POLITIKASI -- Faz 2'nin kritik karari
+# =============================================================================
+# Sorun: Ultralytics varsayilan olarak mosaic=1.0 ile gelir (ve bazi surumlerde
+# mixup/copy_paste sifir olmayabilir). Hicbir sey yapmazsan G50/G25/G10 kontrol
+# gruplarin ZATEN klasik veri artirma kullaniyor olur -> "difuzyon vs klasik"
+# karsilastirmasi bastan bulanir. Difuzyonun kazanci mosaic'in kazancindan
+# ayrilamaz.
+#
+# Karar: ANA GRIDDE minimum augmentation. Sadece plak fizigine uygun,
+# etiket-koruyan donusumler:
+#   - fliplr / flipud: agar plaginin kanonik yonu YOK, ikisi de mesru
+#   - hsv: aydinlatma ve besiyeri renk degiskenligi gercek bir varyans kaynagi
+# Kapali olanlar ve neden:
+#   - mosaic: 4 plagi tek karede birlestirir; olcegi bozar, plak sinirini yok
+#     eder, koloni yogunlugu dagilimini gercekten uzaklastirir. Sayim isi icin
+#     ozellikle zararli.
+#   - mixup: iki plagin seffaf ustuste binmesi mikrobiyolojik olarak anlamsiz
+#   - copy_paste: bu tam olarak Baseline C'nin kolu. Ana gridde acik olursa
+#     "difuzyon vs copy-paste" karsilastirmasi tanimsiz hale gelir.
+#   - scale/translate/shear/perspective: koloni boyutu bir SINIF ipucu
+#     (S.aureus kucuk, E.coli buyuk). Olcegi rastgele oynatmak sinif sinyalini
+#     bozar. Ayrica kutu-koloni hizasini bozma riski.
+#   - erasing: siniflandirma augmentasyonu, tespitte gereksiz
+#
+# Bu politika Baseline A ile AYNI degildir: Baseline A "augmentation yok".
+# Burada flip + HSV var. Yol haritasindaki "Baseline A = ana griddeki
+# G50/G25/G10 ile ayni" ifadesi bu politikayi kastediyor.
+# Baseline B ve C icin: configs/aug_b_klasik.yaml, configs/aug_c_kopyala.yaml
+# =============================================================================
+augment:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  flipud: 0.5
+
+  degrees: 0.0
+  translate: 0.0
+  scale: 0.0
+  shear: 0.0
+  perspective: 0.0
+  mosaic: 0.0
+  close_mosaic: 0             # mosaic zaten kapali
+  mixup: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+  auto_augment: null
+  bgr: 0.0
+
+# =============================================================================
+eval:
+  # Ana metrik. Tablolarda ilk sutun bu.
+  ana_metrik: mAP50-95
+  # "Fark var" esigi -- Faz 4 pilotunda ve ana gridde ayni esik kullanilacak.
+  # Seed'ler arasi standart sapmadan BUYUK olmali; Faz 2 baseline'i bittikten
+  # sonra olculup buraya sabitlenecek.
+  anlamli_fark_esigi: null    # <- G100 x 3 seed olculunce doldur
+  # Sayim conf esigi VAL'da secilir, buraya yazilir, teste oyle uygulanir.
+  conf_thr: null              # <- val kosusundan gelecek
+  iou_thrs: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
+  boyut_araliklari: coco      # 32^2 / 96^2, orijinal 2048px goruntude
+
+seeds:
+  ana_grid: [0, 1, 2, 3, 4]   # 5 seed -- dergi icin
+  yan_kollar: [0, 1, 2]       # 3 seed -- klasik kol, ablasyon, miktar taramasi
+
+logging:
+  wandb: true
+  project: agar-synth
+  # Bolum 6 (hesaplama maliyeti) bu alanlardan yazilacak -- ILK kosudan itibaren
+  olculecek: [toplam_sure_s, epoch_basina_s, gpu_saat, tepe_vram_gb,
+              goruntu_basina_ms, parametre_sayisi, gflops]

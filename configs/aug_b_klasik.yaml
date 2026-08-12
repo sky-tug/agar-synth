@@ -1,0 +1,31 @@
+# Baseline B -- KLASIK GEOMETRIK + RENK DONUSUMLERI
+#
+# base.yaml'in uzerine biner (train.py --config base.yaml --overlay aug_b_klasik.yaml)
+# Sadece augment blogu degisir. Model, imgsz, epoch, seed -- hepsi ayni.
+#
+# Amac: "difuzyon pahali bir islem; ucuz klasik donusumler ayni kazanci
+# veriyorsa difuzyonun pratik gerekcesi kalmaz" sorusunun ilk kolu.
+#
+# Buradaki degerler Ultralytics'in tespit varsayilanlarina yakin tutuldu ki
+# "kotu ayarlanmis baseline" elestirisi gelmesin.
+
+augment:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  flipud: 0.5
+
+  degrees: 180.0        # plagin kanonik yonu yok -> tam donus mesru
+  translate: 0.1
+  scale: 0.5            # DIKKAT: koloni boyutu sinif ipucu; bu kol o ipucunu
+                        # bilerek bozuyor. Bulgu buna gore yorumlanacak.
+  shear: 0.0
+  perspective: 0.0
+
+  mosaic: 0.0
+  mixup: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+  auto_augment: null
+  bgr: 0.0

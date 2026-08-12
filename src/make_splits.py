@@ -129,13 +129,30 @@ def main():
         write(f"train_{lvl}", stems)
 
     # ---------------- Ultralytics icin mutlak yollu listeler ---------------
+    #
+    # DIKKAT -- Ultralytics etiket dosyasini, goruntu yolundaki son
+    # '/images/' parcasini '/labels/' ile degistirerek arar.
+    # Bu yuzden listeler HAM AGAR klasorunu degil, convert.py'nin urettigi
+    # data/processed/images/ altini gostermek ZORUNDA.
+    # Ham yol yazilirsa etiket bulunamaz, Ultralytics uyarir ama durmaz ve
+    # model "bu goruntulerde nesne yok" diye ogrenir. Sessiz, olumcul hata.
     lists = data / "lists"
     lists.mkdir(exist_ok=True)
-    path_of = df.set_index("stem")["image_path"].to_dict()
+    img_dir = data / "images"
+    path_of = {}
+    for s, raw in df.set_index("stem")["image_path"].to_dict().items():
+        p = img_dir / Path(raw).name          # convert.py buraya symlink attı
+        if not p.exists():                    # uzanti farkliysa ara
+            eslesen = sorted(img_dir.glob(f"{s}.*"))
+            if not eslesen:
+                sys.exit(f"HATA: {img_dir} altinda {s} icin goruntu yok. "
+                         f"once convert.py calistir.")
+            p = eslesen[0]
+        path_of[s] = p
 
     def write_paths(name, stems):
         (lists / f"{name}.txt").write_text(
-            "\n".join(str(Path(path_of[s]).resolve()) for s in stems) + "\n",
+            "\n".join(str(path_of[s].resolve()) for s in stems) + "\n",
             encoding="utf-8")
 
     for name, stems in [("train", train), ("val", val), ("test", test)]:
@@ -144,11 +161,20 @@ def main():
         write_paths(f"train_{lvl}", stems)
 
     # ---------------- Dogrulama ----------------
+    tamam = True
+
+    print("\n=== ULTRALYTICS ETIKET COZUMLEME KONTROLU ===")
+    eksik = [s for s in train[:200]
+             if not Path(str(path_of[s]).replace("/images/", "/labels/")
+                         ).with_suffix(".txt").exists()]
+    print(f"  '/images/' -> '/labels/' ile etiket bulunamayan: {len(eksik)}"
+          f"{'  <-- SORUN' if eksik else ''}")
+    tamam &= not eksik
+
     print("\n=== IC ICE OLMA KONTROLU ===")
     zincir = [("train_10", subsets[10], "train_25", subsets[25]),
               ("train_25", subsets[25], "train_50", subsets[50]),
               ("train_50", subsets[50], "train", train)]
-    tamam = True
     for an, a, bn, b in zincir:
         ok = set(a).issubset(set(b))
         tamam &= ok

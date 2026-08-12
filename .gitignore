@@ -5,3 +5,5 @@ wandb/
 *.zip
 __pycache__/
 .ipynb_checkpoints/
+out.txt
+reports_ozet.txt
