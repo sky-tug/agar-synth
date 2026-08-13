@@ -110,6 +110,7 @@ augment:
   mosaic: 0.0
   close_mosaic: 0             # mosaic zaten kapali
   mixup: 0.0
+  cutmix: 0.0                 # ultralytics 8.4'te eklendi
   copy_paste: 0.0
   erasing: 0.0
   auto_augment: null
@@ -128,9 +129,37 @@ eval:
   iou_thrs: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
   boyut_araliklari: coco      # 32^2 / 96^2, orijinal 2048px goruntude
 
+  # Hoca (13 Agu 2026): "Seed sayisini 5'e cikarman yeterli olur. Onlarin
+  # maksimum minimum ve ortalamalarini ilgili skorlara iliskin grafiklerde
+  # gostermen iyi olur."
+  raporlama:
+    grafik: [min, maks, ortalama]   # hata cubugu = min-maks araligi
+    tablo: [ortalama, std]          # std ayrica raporlanacak (n=5 ile savunulabilir)
+
 seeds:
-  ana_grid: [0, 1, 2, 3, 4]   # 5 seed -- dergi icin
+  ana_grid: [0, 1, 2, 3, 4]   # 5 seed -- hoca onayladi
   yan_kollar: [0, 1, 2]       # 3 seed -- klasik kol, ablasyon, miktar taramasi
+
+# =============================================================================
+# XAI kolu -- hoca onayladi (opsiyonel bolum, ablasyondan SONRA)
+# "Grad-CAM/++ ile aktivasyon haritalari verebilirsin. IoU, ELR gibi skorlari
+#  da gercek ve sentetik veri oranlari icin verebilirsin."
+# Egitim yok: mevcut agirliklarla yalnizca cikarim. Maliyeti ihmal edilebilir.
+# =============================================================================
+xai:
+  aktif: true
+  yontem: [gradcam, gradcampp]
+  # Karsilastirilacak modeller: gercek destekli vs sentetik destekli
+  konfigurasyonlar: [G100, G25, G25+S, S100]
+  seed: 0                     # tek seed yeter, bu nicel bir ana bulgu degil
+  n_goruntu: 200              # test kumesinden, sinif dengeli ornek
+  metrikler:
+    - IoU                     # isi haritasinin esiklenmis maskesi ile GT kutusu
+    - EBPG                    # Energy-Based Pointing Game (kutu icindeki enerji payi)
+  # NOT: hocanin yazdigi "ELR" standart bir XAI metrigi olarak dogrulanamadi.
+  # En olasi karsiligi EBPG (Energy-Based Pointing Game) -- CAM literaturunde
+  # IoU ile birlikte raporlanan olcut budur. TEYIT EDILECEK; teyit gelene kadar
+  # EBPG olarak uygulanip makalede o adla yazilacak.
 
 logging:
   wandb: true

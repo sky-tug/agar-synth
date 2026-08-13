@@ -125,12 +125,12 @@ def liste_dogrula(p: Path, data_root: Path) -> int:
 
 
 def dataset_yaml_yaz(hedef: Path, data_root: Path, train_liste: Path,
-                     names: list[str]) -> Path:
+                     val_liste: Path, names: list[str]) -> Path:
     hedef.parent.mkdir(parents=True, exist_ok=True)
     icerik = {
         "path": str(data_root),
         "train": str(train_liste),
-        "val": str(data_root / "lists" / "val.txt"),
+        "val": str(val_liste),
         "test": str(data_root / "lists" / "test.txt"),
         "nc": len(names),
         "names": {i: n for i, n in enumerate(names)},
@@ -153,6 +153,9 @@ def main():
     ap.add_argument("--epochs", type=int, help="config'i ez (duman testi icin)")
     ap.add_argument("--imgsz", type=int, help="config'i ez")
     ap.add_argument("--batch", type=int, help="config'i ez (VRAM'e gore)")
+    ap.add_argument("--patience", type=int,
+                    help="config'i ez. Ezberleme testinde yuksek ver (erken "
+                         "durdurma mAP 0'da takiliyken devreye girmesin)")
     ap.add_argument("--device", default="0")
     ap.add_argument("--duman", action="store_true",
                     help="duman testi: W&B kapali, sonuc olcum.json'a 'duman' diye isaretlenir")
@@ -172,17 +175,35 @@ def main():
         t["imgsz"] = args.imgsz
     if args.batch:
         t["batch"] = args.batch
+    if args.patience is not None:
+        t["patience"] = args.patience
 
     data_root = (KOK / cfg["data"]["root"]).resolve()
     names = cfg["data"]["names"]
 
     train_liste = liste_yolu(data_root, args.level)
     n_train = liste_dogrula(train_liste, data_root)
-    n_val = liste_dogrula(data_root / "lists" / "val.txt", data_root)
+
+    val_liste = data_root / "lists" / "val.txt"
+    val_bos = (not val_liste.exists()
+               or not val_liste.read_text(encoding="utf-8").strip())
+    if val_bos and args.duman:
+        # Demo pakette (10 goruntu, 7 tabaka) val kumesi bos cikar. Duman testi
+        # sonuc uretmek icin degil, HATTIN CALISTIGINI gormek icin kosuyor;
+        # val olarak train kullaniliyor. Bu olcum ASLA rapor edilmez.
+        sari = "\033[1;33m%s\033[0m"
+        print(sari % "! val kumesi bos -- duman testi icin val=train kullaniliyor.")
+        print(sari % "  Bu kosunun mAP degeri ANLAMSIZ (model kendi egitim verisinde test ediliyor).")
+        print(sari % "  Amac yalnizca: etiketler bulunuyor mu, VRAM yetiyor mu, epoch kac saniye.")
+        val_liste = train_liste
+        n_val = n_train
+    else:
+        n_val = liste_dogrula(val_liste, data_root)
 
     cikti = KOK / "runs" / args.name
     cikti.mkdir(parents=True, exist_ok=True)
-    ds_yaml = dataset_yaml_yaz(cikti / "dataset.yaml", data_root, train_liste, names)
+    ds_yaml = dataset_yaml_yaz(cikti / "dataset.yaml", data_root,
+                               train_liste, val_liste, names)
 
     gpu = gpu_bilgisi()
     print("=" * 62)
@@ -228,6 +249,10 @@ def main():
         weight_decay=t["weight_decay"], warmup_epochs=t["warmup_epochs"],
         cos_lr=t["cos_lr"], deterministic=t["deterministic"],
         workers=t["workers"], amp=t["amp"], val=t["val"], plots=t["plots"],
+        # Egitim icindeki dogrulama adiminda da gecerli olmali: bir plakta
+        # 125'e kadar koloni var. Config'de yaziliyken buraya gecirilmezse
+        # Ultralytics'in varsayilani (300) sessizce kullanilir.
+        max_det=t.get("max_det", 300),
         seed=args.seed, device=args.device,
         project=str(KOK / "runs"), name=args.name, exist_ok=True,
         **{k: v for k, v in cfg["augment"].items() if v is not None},

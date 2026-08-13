@@ -151,8 +151,12 @@ def main():
         path_of[s] = p
 
     def write_paths(name, stems):
+        # DIKKAT: .resolve() KULLANMA. data/processed/images/ altindaki dosyalar
+        # ham AGAR klasorune SYMLINK; resolve() onlari takip eder ve yolu ham
+        # klasore cevirir -> '/images/' parcasi kaybolur -> Ultralytics etiketi
+        # bulamaz. path_of zaten mutlak yol (data .resolve() edilmis durumda).
         (lists / f"{name}.txt").write_text(
-            "\n".join(str(path_of[s].resolve()) for s in stems) + "\n",
+            "\n".join(str(path_of[s]) for s in stems) + "\n",
             encoding="utf-8")
 
     for name, stems in [("train", train), ("val", val), ("test", test)]:
@@ -164,12 +168,21 @@ def main():
     tamam = True
 
     print("\n=== ULTRALYTICS ETIKET COZUMLEME KONTROLU ===")
-    eksik = [s for s in train[:200]
-             if not Path(str(path_of[s]).replace("/images/", "/labels/")
-                         ).with_suffix(".txt").exists()]
+    # Kontrol, DOSYAYA YAZILAN satirlarin AYNISI uzerinden yapilmali.
+    # (Onceki surum path_of'u kontrol ediyordu ama dosyaya resolve() edilmis
+    #  hali yaziliyordu; kontrol gecti, egitim patladi.)
+    yazilan = [l.strip() for l in
+               (lists / "train.txt").read_text(encoding="utf-8").splitlines() if l.strip()]
+    ham_yol = [y for y in yazilan if "/images/" not in y]
+    eksik = [y for y in yazilan[:200]
+             if not Path(y.replace("/images/", "/labels/")).with_suffix(".txt").exists()]
+    print(f"  listede '/images/' parcasi olmayan satir: {len(ham_yol)}"
+          f"{'  <-- SORUN (symlink resolve edilmis olabilir)' if ham_yol else ''}")
     print(f"  '/images/' -> '/labels/' ile etiket bulunamayan: {len(eksik)}"
           f"{'  <-- SORUN' if eksik else ''}")
-    tamam &= not eksik
+    if yazilan:
+        print(f"  ornek satir: {yazilan[0]}")
+    tamam &= not eksik and not ham_yol
 
     print("\n=== IC ICE OLMA KONTROLU ===")
     zincir = [("train_10", subsets[10], "train_25", subsets[25]),

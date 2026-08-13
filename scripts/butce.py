@@ -33,6 +33,15 @@ from pathlib import Path
 # GRID TANIMI -- yol haritasi Faz 5/6/7
 # (ad, egitim kumesi buyuklugu / tam veri orani, hangi faz)
 # "+S" kollarinda toplam egitim kumesi tam veri buyuklugune tamamlanir.
+#
+# 12 Agustos 2026 -- hedef dergi belli oldu: Muhendislik Bilimleri ve Tasarim
+# Dergisi (JESD, TR Dizin). Kapsam buna gore kisildi:
+#   - klasik kol: 3 seviye -> yalnizca G25 (ikame egrisinin orta noktasi)
+#   - miktar taramasi: 0.5x/1x/2x/4x -> 0.5x ve 2x  (4x tek basina en pahali
+#     kalemdi: 3.25 tam-kosu esdegeri x 3 seed)
+#   - ikinci detektor kontrolu: kapsam disi (dergi bunu beklemiyor)
+#   - XAI kolu EKLENDI (hoca onayladi) -- egitim yok, yalnizca cikarim
+# Eski genis plan asagida --kollar ile hala secilebilir.
 # ---------------------------------------------------------------------------
 
 ANA_GRID = [
@@ -40,19 +49,24 @@ ANA_GRID = [
     ("G25+S",  1.00), ("G10",  0.10), ("G10+S", 1.00), ("S100", 1.00),
 ]
 
-KLASIK = [  # Baseline B ve C, 3 gercek veri seviyesinde
+# Kisilmis: yalnizca G25 seviyesinde. Difuzyon vs klasik sorusunun cevabi
+# icin ikame egrisinin orta noktasi yeterli.
+KLASIK = [("B_G25", 0.25), ("C_G25", 0.25)]
+KLASIK_GENIS = [
     ("B_G50", 0.50), ("B_G25", 0.25), ("B_G10", 0.10),
     ("C_G50", 0.50), ("C_G25", 0.25), ("C_G10", 0.10),
 ]
 
 # Sentetik miktar taramasi: G25 tabani (0.25) + sentetik.
-# 1x = gercegi tam veriye tamamlayan miktar (0.75).
-MIKTAR = [
+# 1x = gercegi tam veriye tamamlayan miktar (0.75); zaten ana gridde G25+S var.
+MIKTAR = [("G25+S_0.5x", 0.25 + 0.375), ("G25+S_2x", 0.25 + 1.50)]
+MIKTAR_GENIS = [
     ("G25+S_0.5x", 0.25 + 0.375),
     ("G25+S_2x",   0.25 + 1.50),
     ("G25+S_4x",   0.25 + 3.00),
 ]
 
+# Hoca: "Uc farkli senaryo secip kullanabilirsin. Maske sabit alinabilir."
 ABLASYON = [("A1_LoRAsiz", 1.00), ("A2_arka_plan", 1.00), ("A3_rastgele_yerlesim", 1.00)]
 
 IKINCI_DETEKTOR = [("YOLO11_G25", 0.25), ("YOLO11_G25+S", 1.00)]
@@ -62,8 +76,19 @@ KOLLAR = {
     "klasik":          (KLASIK, 3, "Faz 6"),
     "miktar_taramasi": (MIKTAR, 3, "Faz 6"),
     "ablasyon":        (ABLASYON, 3, "Faz 7"),
+    # --- varsayilan disi, --kollar ile acilir ---
+    "klasik_genis":    (KLASIK_GENIS, 3, "Faz 6"),
+    "miktar_genis":    (MIKTAR_GENIS, 3, "Faz 6"),
     "ikinci_detektor": (IKINCI_DETEKTOR, 2, "Faz 7"),
 }
+
+# Varsayilan olarak hesaplanan kollar (JESD kapsami)
+VARSAYILAN_KOLLAR = ["ana_grid", "klasik", "miktar_taramasi", "ablasyon"]
+
+# XAI kolu (Grad-CAM/++): egitim YOK, mevcut agirliklarla cikarim.
+# Maliyeti egitimin yaninda ihmal edilebilir ama sifir degil -- gosterilsin.
+XAI_KONFIG = ["G100", "G25", "G25+S", "S100"]      # karsilastirilacak modeller
+XAI_GORUNTU = 200                                   # test kumesinden ornek
 
 
 def biçim(saat: float) -> str:
@@ -86,8 +111,14 @@ def main():
                     help="tam AGAR countable+lower-res goruntu sayisi. "
                          "Olcum alt kumede yapildiysa buradan olceklenir.")
     ap.add_argument("--butce", type=float, help="elindeki GPU-saat")
-    ap.add_argument("--kollar", default=",".join(KOLLAR),
-                    help="virgul ile: " + ",".join(KOLLAR))
+    ap.add_argument("--kollar", default=",".join(VARSAYILAN_KOLLAR),
+                    help="virgul ile. varsayilan (JESD kapsami): "
+                         + ",".join(VARSAYILAN_KOLLAR)
+                         + "  |  hepsi: " + ",".join(KOLLAR))
+    ap.add_argument("--xai", action="store_true",
+                    help="XAI kolunu (Grad-CAM cikarimi) da hesaba kat")
+    ap.add_argument("--xai-s-goruntu", type=float, default=1.5,
+                    help="bir goruntu icin Grad-CAM++ cikarim suresi (s)")
     ap.add_argument("--senaryo", action="store_true",
                     help="sigmazsa kisma senaryolarini da goster")
     # uretim (Faz 3) maliyeti
@@ -95,6 +126,10 @@ def main():
                     help="bir sentetik goruntunun inpainting suresi (s)")
     ap.add_argument("--lora-saat", type=float, default=0.0,
                     help="seviye basina bir LoRA egitimi (saat). 3 LoRA kosacak.")
+    ap.add_argument("--sentetik-seed-basina", action="store_true",
+                    help="her seed icin AYRI sentetik kume uret. Istatistiksel "
+                         "olarak daha temiz (uretim rastgeleligi de varyansa "
+                         "girer) ama uretim maliyetini seed sayisi kadar carpar.")
     args = ap.parse_args()
 
     # ---------------- olculen taban ----------------
@@ -167,22 +202,52 @@ def main():
     # ---------------- uretim maliyeti (Faz 3) ----------------
     uretim_saat = 0.0
     if args.uretim_s_goruntu or args.lora_saat:
-        # kac sentetik goruntu gerekiyor (bir kez uretilir, seed'ler paylasir)
+        # Bir konfigurasyonun sentetik ihtiyaci = toplam egitim kumesi - gercek pay.
+        # Gercek pay konfigurasyon adindaki G<sayi>'dan okunur; "+S" yoksa 0 sentetik.
+        import re
+
+        def sentetik_ihtiyaci(ad, toplam):
+            if "+S" not in ad and not ad.startswith("S100"):
+                return 0.0
+            if ad.startswith("S100"):
+                return toplam                      # tamami sentetik
+            m = re.search(r"G(\d+)", ad)
+            gercek = int(m.group(1)) / 100 if m else 0.0
+            return max(0.0, toplam - gercek)
+
         sentetik_pay = 0.0
-        if "ana_grid" in secili:
-            sentetik_pay += (0.50 + 0.75 + 0.90 + 1.00)     # G50+S,G25+S,G10+S,S100
-        if "miktar_taramasi" in secili:
-            sentetik_pay += (0.375 + 1.50 + 3.00)
-        if "ablasyon" in secili:
-            sentetik_pay += 3 * 0.75
-        n_sentetik = int(round(sentetik_pay * n_tam))
+        for kol in secili:
+            konfigler, _, _ = KOLLAR[kol]
+            sentetik_pay += sum(sentetik_ihtiyaci(a, f) for a, f in konfigler)
+
+        # Sentetik kume seed'ler arasinda paylasilirsa bir kez uretilir.
+        # Seed basina ayri uretmek istatistiksel olarak daha temiz (uretim
+        # rastgeleligi de varyansa girer) ama maliyeti seed sayisi kadar carpar.
+        carpan = 1
+        if args.sentetik_seed_basina:
+            carpan = max(sd for _, sd, _ in (KOLLAR[k] for k in secili))
+
+        n_sentetik = int(round(sentetik_pay * n_tam)) * carpan
         uretim_saat = n_sentetik * args.uretim_s_goruntu / 3600 + 3 * args.lora_saat
         print()
         print(f"uretim (Faz 3)       : {n_sentetik} sentetik goruntu "
-              f"x {args.uretim_s_goruntu} s  +  3 LoRA x {args.lora_saat} sa")
+              f"x {args.uretim_s_goruntu} s  +  3 LoRA x {args.lora_saat} sa"
+              + (f"   [seed basina ayri uretim, x{carpan}]" if carpan > 1
+                 else "   [tek sentetik kume, seed'ler paylasiyor]"))
         print(f"                     = {uretim_saat:.1f} GPU-saat")
 
-    genel = toplam_saat + uretim_saat
+    # ---------------- XAI kolu (egitim yok, cikarim) ----------------
+    xai_saat = 0.0
+    if args.xai:
+        xai_saat = len(XAI_KONFIG) * XAI_GORUNTU * args.xai_s_goruntu / 3600
+        print()
+        print(f"XAI (Grad-CAM/++)    : {len(XAI_KONFIG)} model "
+              f"({', '.join(XAI_KONFIG)}) x {XAI_GORUNTU} goruntu "
+              f"x {args.xai_s_goruntu} s")
+        print(f"                     = {xai_saat:.2f} GPU-saat   "
+              f"(egitim yok -- mevcut agirliklarla cikarim)")
+
+    genel = toplam_saat + uretim_saat + xai_saat
     print()
     print(f"GENEL TOPLAM         : {biçim(genel)}  ({toplam_kosu} egitim kosusu)")
 

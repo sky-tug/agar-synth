@@ -1,9 +1,26 @@
+# --- veri ve ciktilar (buyuk, yeniden uretilebilir) ---
 data/
 runs/
 wandb/
 *.pt
 *.zip
+
+# --- SANAL ORTAMLAR -- git'e ASLA girmemeli (birkac GB) ---
+.venv/
+src/.venv/
+venv/
+env/
+.conda/
+
+# --- python ---
 __pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
 .ipynb_checkpoints/
+
+# --- gecici ---
 out.txt
 reports_ozet.txt
+*.log
+.DS_Store

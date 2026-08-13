@@ -22,7 +22,7 @@
 
 ---
 
-## Faz 2 — Olcum altyapisi (12 Agustos 2026)
+## Faz 2 — Olcum altyapisi (12-13 Agustos 2026)
 
 ### Duzeltmeler
 
@@ -64,6 +64,126 @@
 | `model.weights: yolo26n.pt` | Ultralytics surumu YOLO26'yi tanimiyorsa `yolo11n.pt`'ye dusulecek — **sessizce degil**, buraya not dusulerek |
 | Baseline C `copy_paste` | Ultralytics'in `copy_paste`'i segmentasyon maskesi ister; detect gorevinde sessizce etkisiz kalabilir. Kontrol edilecek; etkisizse offline copy-paste yazilacak. **Etkisiz bir Baseline C, difuzyon lehine sahte kazanc uretir — en tehlikeli hata bu.** |
 | Tam AGAR verisi | Basvuru 10 Agustos'ta gonderildi, onay bekleniyor. Faz 1'in kapisi tam veride **tekrar** gecilmeli: demo pakette (10 goruntu, 7 tabaka) val/test bos cikiyor ve train_50 = train_25 = train_10. `make_splits.py` bunu uyari olarak basiyor — kod hatasi degil, veri yetersizligi. 240 goruntuluk sentetik testte bolme dogru calisiyor (ic ice ✓, sizinti yok ✓, sinif paylari korunuyor ✓). |
+
+---
+
+## Hoca cevabi — 13 Agustos 2026
+
+Faz 0'in dort acik sorusu kapandi. Cevaplar ve projeye etkileri:
+
+| # | Karar | Kaynak / etki |
+|---|---|---|
+| H.1 | **"Kendi kendine ogrenme" AYRI bir deney kolu DEGIL** | Hoca: *"sentetik veri ile egitim ve gercek veri ile test, sentetik ve gercek veriyi karistirarak egitim ve test calismalariyla yapiyoruz."* Yani basliktaki ifade **ikame egrisinin kendisini** tarif ediyor. **Projenin en buyuk belirsizligi kapandi — SSL kolu yok, tasarim degismiyor.** |
+| H.2 | 3.4'teki oranlar **serbest**; bulgular agirlikli olarak bu oranlarin testi | Mevcut G100/G50/G25/G10/S100 tasarimi aynen gecerli. Miktar taramasi (0.5x, 2x) bulgular bolumunun merkezine tasiniyor — yan kol degil. |
+| H.3 | **Ablasyon duzeltmesi onaylandi.** *"Oradaki ablasyon tablosu ornek. Uc farkli senaryo secip kullanabilirsin. Maske sabit alinabilir."* | Onerdigimiz A1/A2/A3 (LoRA yok / gercek arka plan yok / rastgele yerlesim) aynen kullanilabilir. "Maske sabit" = maske kontrolunun her senaryoda acik kalmasi — zaten teknik zorunluluktu. |
+| H.4 | **5 seed.** Grafiklerde **min / maks / ortalama** gosterilecek | `configs/base.yaml` → `eval.raporlama`. Hata cubugu min–maks araligi olacak; std tabloda ayrica verilecek (n=5 ile savunulabilir). |
+| H.5 | **XAI eklenecek** — ablasyondan SONRA ayri bolum, Grad-CAM/++ | Ozette 1-2 cumle zorunlu; bolum opsiyoneldi, eklemeye karar verildi. **Egitim yok, yalnizca cikarim** → maliyeti ihmal edilebilir (~0.3 GPU-saat). `configs/base.yaml` → `xai`. |
+| H.6 | **Hedef dergi: Muhendislik Bilimleri ve Tasarim Dergisi (JESD)**, Suleyman Demirel Univ., DergiPark | TR Dizin + Scilit + EBSCOhost + SOBIAD + CrossRef. Yilda 4 sayi. Turkce/Ingilizce. Acik erisim CC BY 4.0. Yalnizca ozgun arastirma makalesi. Bildirilen sureler: on inceleme 8 gun, hakem 111 gun, yayin 69 gun. |
+| H.7 | **Makale dili: Turkce** | Yazim hizi. Ilerideki bir uluslararasi hedef icin ceviri maliyeti kabul ediliyor. |
+
+### Kapsam kismasi (H.6'nin sonucu)
+
+JESD icin 80 kosuluk grid gereginden genis. Yeni kapsam **61 kosu**:
+
+| Kol | Onceki | Yeni | Gerekce |
+|---|---|---|---|
+| Ana grid | 8 konf x 5 seed = 40 | **degismedi** | Makalenin belkemigi |
+| Klasik kol (Baseline B/C) | 3 seviye x 3 seed = 18 | **G25 x 3 seed = 6** | "Difuzyon vs klasik" sorusu icin ikame egrisinin orta noktasi yeterli |
+| Miktar taramasi | 0.5x/2x/4x x 3 = 9 | **0.5x/2x x 3 = 6** | 4x tek basina en pahali kalemdi (3.25 tam-kosu esdegeri x 3 seed) |
+| Ablasyon | 3 x 3 = 9 | **degismedi** | Hoca acikca istedi |
+| Ikinci detektor | 2 x 2 = 4 | **kapsam disi** | Dergi bunu beklemiyor; genelleme iddiasi makalede sinirlanacak |
+| XAI | yok | **eklendi** | Egitim yok, ~0.3 GPU-saat |
+
+Egitim yuku: 62.7 → **46.9 tam-kosu esdegeri** (%25 azalma).
+Kisilan kollar `scripts/butce.py` icinde `klasik_genis` / `miktar_genis` /
+`ikinci_detektor` olarak duruyor — butce izin verirse geri acilabilir.
+
+### Acik kalan tek nokta
+
+**"ELR"** — hoca XAI baglaminda *"IoU, ELR gibi skorlari da ... verebilirsin"*
+demis. ELR standart bir XAI/CAM metrigi olarak dogrulanamadi. En olasi karsiligi
+**EBPG (Energy-Based Pointing Game)** — CAM literaturunde IoU ile birlikte
+raporlanan olcut budur. Teyit gelene kadar EBPG olarak uygulanacak.
+Bir sonraki mailde tek satirla sorulacak.
+
+---
+
+## Faz 2 — hat dogrulamasi ve ilk olcumler (13 Agustos 2026)
+
+Donanim: **RTX 4060 Laptop, 8 GB** (7.6 GB kullanilabilir) · Ultralytics 8.4.118 ·
+torch 2.13.0+cu130 · Python 3.12 · ortam: `src/.venv` (conda `agar` DEGIL)
+
+### Duzeltilen iki hata
+
+| # | Sorun | Cozum |
+|---|---|---|
+| 2.16 | `make_splits.py` liste yazarken `.resolve()` kullaniyordu. `data/processed/images/` altindakiler ham AGAR'a **symlink**; resolve onlari takip edip yolu ham klasore ceviriyor, `/images/` parcasi kayboluyor, Ultralytics etiketi bulamiyor. | `.resolve()` kaldirildi. Ayrica **kontrol de duzeltildi**: onceki surum degiskendeki degeri test ediyordu, dosyaya yazilan degeri degil — kontrol geciyor, egitim patliyordu. Artik yazilan satirlar okunup dogrulaniyor ve ornek bir satir ekrana basiliyor. |
+| 2.17 | `max_det: 1000` config'de yaziliyordu ama `model.train()`'e gecirilmiyordu; Ultralytics sessizce 300 kullaniyordu. | `scripts/train.py` artik acikca gonderiyor. Ayni siniftan: `cutmix` (8.4'te eklendi) config'e acikca 0.0 olarak yazildi. |
+
+### Duman testi — hat calisiyor mu?
+
+10 goruntu, 10 epoch, batch 4. **Sonuc: etiketler bulunuyor.**
+`10 images, 0 backgrounds, 0 corrupt` + `Instances 387`.
+mAP 0 cikti; 30 gradyan adimi icin beklenen durum, tanisal degil.
+
+`yolo26n.pt` Ultralytics 8.4.118'de **mevcut** — `yolo11n.pt` yedegine gerek yok.
+
+### Ezberleme testi — hat OGRENIYOR mu?
+
+Ayni 10 goruntu, 300 epoch, batch 8, patience 1000. 7.2 dakika.
+
+| Sinif | AP50 | AP50-95 | kutu boyutu (medyan px) |
+|---|---|---|---|
+| **tumu** | **0.947** | **0.767** | |
+| S.aureus | 0.951 | 0.723 | 29 |
+| B.subtilis | 0.873 | 0.704 | 151 |
+| P.aeruginosa | 0.968 | 0.851 | 155 |
+| E.coli | 0.981 | 0.820 | 128 |
+| C.albicans | 0.963 | 0.738 | 27.5 |
+
+**Karar 2.18 — `imgsz: 1280` ampirik olarak dogrulandi.** En kucuk iki sinif
+(C.albicans 27.5 px, S.aureus 29 px) buyuk siniflarla ayni bantta AP aliyor.
+1280'de kucuk koloniler ogrenilebiliyor. Bu, protokolun en kritik varsayimiydi;
+artik tahmin degil, olcum.
+
+### Donanim olcumleri (bolum 6 icin ilk kayit)
+
+| | |
+|---|---|
+| tepe VRAM, imgsz 1280 batch 4 | 4.19 GB |
+| tepe VRAM, imgsz 1280 batch 8 | **6.05 GB**  (7.6 GB'nin %80'i) |
+| cikarim | 8.0 ms / goruntu |
+| epoch (10 goruntu, batch 8) | 1.4 s |
+
+**Karar 2.19 — bu donanimda batch 8 tavan.** batch 16 denenmeyecek; 6.05 GB
+zaten sinira yakin ve OOM riski uzun kosularda saatler kaybettirir.
+
+### 🔴 BUTCE KAPISI: bu dizustunde SIGMIYOR
+
+Duman olcumu 10 goruntude yapildi; epoch basina sabit maliyet (dogrulama,
+dataloader baslatma) amortize olmadigi icin dogrudan olceklendirmek asiri
+kotumser. Gercekci aralik, olculen cikarim hizindan (8.0 ms/goruntu) turetildi:
+
+| Varsayim | sa / tam kosu | 61 kosuluk grid |
+|---|---|---|
+| iyimser (egitim = 3x cikarim) | 8.0 | **375 GPU-saat** |
+| orta (4x) | 10.7 | **500 GPU-saat** |
+| kotumser (5x) | 13.3 | **625 GPU-saat** |
+| duman olcumunden lineer (ust sinir, guvenilmez) | 46.7 | 2187 GPU-saat |
+
+Uretim (Faz 3) ~95 GPU-saat ekliyor. **Toplam ~470–720 GPU-saat**, yani bu
+kartta kesintisiz **3–4 hafta**. Bir dizustu bilgisayarda gercekci degil.
+
+**Sonuclar:**
+
+1. **BİDB GPU sunucusu artik kritik yolda.** "Olsa iyi olur" degil, ana gridin
+   on sarti. Sorulmasi geciken tek is bu.
+2. Dizustu bundan sonra **gelistirme ve duman testi** icin; ana grid degil.
+3. `epochs: 150` bir tahmin. 8000 goruntude model muhtemelen daha erken
+   yakinsar ve `patience: 50` devreye girer. G100 kosusu bunu olcecek —
+   gercek maliyet bu tablodan dusuk cikabilir.
+4. Kesin sayi tam veriyle yapilacak G100 kosusundan gelecek. Bu tablo bir
+   **aralik**, karar degil.
 
 ---
 

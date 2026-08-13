@@ -1,0 +1,34 @@
+# AGAR-SYNTH bagimliliklari
+# PyTorch BURADA YOK -- CUDA surumune gore ayri kuruluyor (scripts/kurulum.sh)
+
+# --- Faz 1-2: veri hatti, tespit, olcum ---
+ultralytics>=8.3.0        # YOLO. Surum YOLO26'yi tanimiyorsa base.yaml'da yolo11n.pt'ye dus
+pycocotools>=2.0.7        # olcum kodunun capraz dogrulamasi (test_metrics.py test 10)
+numpy>=1.26
+pandas>=2.0
+pillow>=10.0
+opencv-python-headless>=4.9
+pyyaml>=6.0
+scipy>=1.11
+matplotlib>=3.8
+seaborn>=0.13
+tqdm
+
+# --- deney takibi ---
+wandb>=0.16
+
+# --- Faz 2: klasik veri artirma kolu (Baseline B/C) ---
+albumentations>=1.4
+
+# --- Faz 3: uretim hatti (difuzyon) ---
+# Faz 3'e gelince yorumu kaldir -- simdi kurmak gereksiz yer kaplar (~5 GB)
+# diffusers>=0.27
+# transformers>=4.40
+# accelerate>=0.30
+# peft>=0.10
+# safetensors
+# clean-fid                # FID / KID
+# lpips                    # LPIPS
+
+# --- Faz 7: XAI kolu (Grad-CAM/++) ---
+# grad-cam>=1.5
