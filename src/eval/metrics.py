@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 """
-Olcum cekirdegi -- Ultralytics'ten BAGIMSIZ.
+Measurement core -- INDEPENDENT of Ultralytics.
 
-Neden kendi implementasyonumuz var:
-  1. Ultralytics'in val() ciktisi boyut bazli AP (small/medium/large) vermiyor.
-     Makalenin ana argumani kucuk koloniler uzerinde; bu kirilim sart.
-  2. MAE / sMAPE (koloni sayimi) Ultralytics'te hic yok.
-  3. Ikinci detektor kontrolu (RT-DETR, YOLO11) icin AYNI olcum kodunun
-     calismasi gerekiyor. Detektore bagli bir metrik, detektorler arasi
-     karsilastirmayi gecersiz kilar.
-  4. Ana metrik "kutunun icinde" olmali -- protokol donduruldugunda
-     olcum kodu da donar.
+Why we have our own implementation:
+  1. Ultralytics' val() does not report size-stratified AP (small/medium/large).
+     The paper's central claim is about small colonies; this breakdown is
+     mandatory.
+  2. MAE / sMAPE (colony counting) do not exist in Ultralytics at all.
+  3. The second-detector control (RT-DETR, YOLO11) requires the SAME measurement
+     code to run. A detector-dependent metric invalidates any cross-detector
+     comparison.
+  4. The primary metric must live "inside the box" -- when the protocol is
+     frozen (Phase 5), the measurement code freezes with it.
 
-AP hesabi COCO ile birebir ayni algoritma (cocoeval.evaluateImg/accumulate):
-  - IoU esikleri 0.50:0.05:0.95 (10 esik)
-  - 101 noktali interpolasyon
-  - alan araligi disindaki GT'ler "ignore", onlarla eslesen tespitler de ignore
-  - eslesmeyen ve alan araligi disinda kalan tespitler de ignore
+The AP computation is algorithmically identical to COCO
+(cocoeval.evaluateImg / accumulate):
+  - IoU thresholds 0.50:0.05:0.95 (10 thresholds)
+  - 101-point interpolation
+  - GTs outside the area range are "ignore"; detections matched to them are too
+  - unmatched detections outside the area range are also ignored
 
-Dogrulama: src/eval/test_metrics.py  (pycocotools varsa ona karsi da kiyaslar)
+Verification: src/eval/test_metrics.py (cross-checked against pycocotools when
+available, to 1e-4).
 """
 
 from __future__ import annotations
@@ -30,17 +33,20 @@ from pathlib import Path
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Sabitler -- PROTOKOLUN PARCASI, degistirilirse decisions.md'ye not dusulecek
+# Constants -- PART OF THE PROTOCOL. Changing any of these requires an entry in
+# decisions.md (the decision log) with the rationale.
 # ---------------------------------------------------------------------------
 
 CLASS_ORDER = ["S.aureus", "B.subtilis", "P.aeruginosa", "E.coli", "C.albicans"]
 
-IOU_THRS = np.linspace(0.5, 0.95, 10)          # COCO standardi
-REC_THRS = np.linspace(0.0, 1.0, 101)          # 101 noktali interpolasyon
+IOU_THRS = np.linspace(0.5, 0.95, 10)          # COCO standard
+REC_THRS = np.linspace(0.0, 1.0, 101)          # 101-point interpolation
 
-# COCO alan araliklari (ORIJINAL goruntu pikseli cinsinden, imgsz degil).
-# AGAR icin anlamli: S.aureus medyan 29px -> 841px^2 (small),
-# E.coli medyan 128px -> 16384px^2 (large).
+# COCO area ranges, in ORIGINAL image pixels -- NOT in imgsz. evaluate.py reads
+# width/height from the image file itself so this holds. If it ever used imgsz
+# the whole size breakdown (the paper's main argument) would silently shift.
+# Meaningful for AGAR: S.aureus median 29px -> 841px^2 (small),
+# E.coli median 128px -> 16384px^2 (large).
 AREA_RANGES_COCO = {
     "all":    (0.0, 1e10),
     "small":  (0.0, 32.0 ** 2),
@@ -50,12 +56,12 @@ AREA_RANGES_COCO = {
 
 
 # ---------------------------------------------------------------------------
-# Veri yapilari
+# Data structures
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ImageAnno:
-    """Tek goruntunun gercek kutulari + tespitleri. Kutular xyxy, MUTLAK piksel."""
+    """Ground truth + detections for one image. Boxes are xyxy, ABSOLUTE pixels."""
     stem: str
     width: int
     height: int
@@ -67,13 +73,17 @@ class ImageAnno:
 
 
 # ---------------------------------------------------------------------------
-# G/C okuma
+# I/O
 # ---------------------------------------------------------------------------
 
 def read_yolo_txt(path: Path, W: int, H: int, with_conf: bool = False):
     """
-    YOLO formati -> (cls[N], xyxy[N,4], conf[N] | None), MUTLAK piksel.
-    Satir: cls xc yc w h [conf]   (hepsi normalize)
+    YOLO format -> (cls[N], xyxy[N,4], conf[N] | None), ABSOLUTE pixels.
+    Line: cls xc yc w h [conf]   (all normalised)
+
+    W and H must be the ORIGINAL image dimensions. Swapping them produces
+    plausible-looking but wrong boxes; test_metrics.py guards this with a
+    deliberately non-square (800x400) case.
     """
     cls, box, conf = [], [], []
     if not path.exists():
@@ -123,13 +133,14 @@ def box_area(b: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# COCO evaluateImg esdegeri: tek (goruntu, sinif, alan araligi) icin eslestirme
+# COCO evaluateImg equivalent: matching for one (image, class, area range)
 # ---------------------------------------------------------------------------
 
 def _match_one(gt_box, dt_box, dt_conf, area_rng, iou_thrs):
     """
-    COCO cocoeval.evaluateImg ile birebir ayni eslestirme.
-    Doner: dt_conf_sirali, dtm[T,D] (eslesme var mi), dtIg[T,D], npig (sayilan GT)
+    Matching identical to COCO's cocoeval.evaluateImg.
+    Returns: sorted dt_conf, dtm[T,D] (matched?), dtIg[T,D] (ignored?),
+             npig (number of GTs that count)
     """
     T = len(iou_thrs)
     G, D = len(gt_box), len(dt_box)
@@ -138,7 +149,11 @@ def _match_one(gt_box, dt_box, dt_conf, area_rng, iou_thrs):
     if G:
         ga = box_area(gt_box)
         gt_ig = (ga < area_rng[0]) | (ga > area_rng[1])
-        # COCO: ignore olmayan GT'ler once gelsin (eslestirme onlari tercih etsin)
+        # COCO: non-ignored GTs come first so matching prefers them.
+        # This is the "ignore" mechanism: when computing e.g. small-object AP we
+        # do NOT delete large GTs -- deleting them would turn a correct large
+        # detection into a false positive and unfairly depress the small-object
+        # score. Marking them ignore means no reward and no penalty.
         order_g = np.argsort(gt_ig, kind="stable")
         gt_box, gt_ig = gt_box[order_g], gt_ig[order_g]
 
@@ -160,10 +175,10 @@ def _match_one(gt_box, dt_box, dt_conf, area_rng, iou_thrs):
             best_iou = min(thr, 1 - 1e-10)
             m = -1
             for gi in range(G):
-                if gtm[gi] >= 0:                       # bu GT zaten alindi
+                if gtm[gi] >= 0:                       # this GT is already taken
                     continue
                 if m > -1 and (not gt_ig[m]) and gt_ig[gi]:
-                    break                              # ignore'a dusmeden dur
+                    break                              # stop before falling into ignored GTs
                 if ious[di, gi] < best_iou:
                     continue
                 best_iou = ious[di, gi]
@@ -174,7 +189,7 @@ def _match_one(gt_box, dt_box, dt_conf, area_rng, iou_thrs):
             dtIg[ti, di] = gt_ig[m]
             gtm[m] = di
 
-    # eslesmeyen ve alan araligi disinda kalan tespitler de sayilmaz
+    # unmatched detections outside the area range do not count either
     da = box_area(dt_box)
     out_of_range = (da < area_rng[0]) | (da > area_rng[1])
     dtIg |= (~dtm) & out_of_range[None, :]
@@ -183,20 +198,20 @@ def _match_one(gt_box, dt_box, dt_conf, area_rng, iou_thrs):
 
 
 # ---------------------------------------------------------------------------
-# Ana degerlendirme
+# Main evaluation
 # ---------------------------------------------------------------------------
 
 def evaluate_detection(images, n_classes=len(CLASS_ORDER),
                        area_ranges=None, iou_thrs=IOU_THRS):
     """
-    images: ImageAnno listesi
-    Doner: dict
-      ap[alan][sinif_id]        -> IoU esikleri uzerinde ortalama AP
-      ap50[alan][sinif_id]      -> IoU 0.50'de AP
-      ap75[alan][sinif_id]
-      map[alan]                 -> siniflar uzerinde ortalama (GT'si olan siniflar)
-      map50[alan], map75[alan]
-      n_gt[alan][sinif_id]
+    images: list of ImageAnno
+    Returns dict:
+      ap[area][class_id]        -> AP averaged over IoU thresholds
+      ap50[area][class_id]      -> AP at IoU 0.50
+      ap75[area][class_id]
+      map[area]                 -> mean over classes that have GT
+      map50[area], map75[area]
+      n_gt[area][class_id]
     """
     area_ranges = area_ranges or AREA_RANGES_COCO
     T = len(iou_thrs)
@@ -231,13 +246,17 @@ def evaluate_detection(images, n_classes=len(CLASS_ORDER),
 
             ngt_per_cls[c] = npig_total
             if npig_total == 0:
-                continue                       # bu sinif bu alanda yok -> AP tanimsiz
+                continue                       # class absent in this area -> AP undefined
 
             if confs:
                 conf = np.concatenate(confs)
                 dtm = np.concatenate(dtms, axis=1)
                 dtIg = np.concatenate(dtIgs, axis=1)
-                order = np.argsort(-conf, kind="stable")   # TUM goruntuler boyunca
+                # Sorted across ALL images, not per image. The precision-recall
+                # curve is drawn over one globally ranked detection list; doing
+                # it per image and averaging gives a different (wrong) number.
+                # This is the most common bug in hand-written AP code.
+                order = np.argsort(-conf, kind="stable")
                 dtm, dtIg = dtm[:, order], dtIg[:, order]
             else:
                 dtm = np.zeros((T, 0), bool)
@@ -252,7 +271,7 @@ def evaluate_detection(images, n_classes=len(CLASS_ORDER),
                 rc = tp_c / npig_total
                 pr = tp_c / np.maximum(tp_c + fp_c, np.finfo(float).eps)
 
-                # COCO: precision egrisini monoton azalan hale getir
+                # COCO: make the precision curve monotonically non-increasing
                 pr = np.concatenate([pr, [0.0]])
                 for i in range(len(pr) - 2, -1, -1):
                     pr[i] = max(pr[i], pr[i + 1])
@@ -265,8 +284,8 @@ def evaluate_detection(images, n_classes=len(CLASS_ORDER),
                 ap_per_cls[ti, c] = q.mean()
 
         with warnings.catch_warnings():
-            # GT'si olmayan sinif/alan hucreleri NaN -- "Mean of empty slice"
-            # beklenen durum, uyari degil.
+            # Class/area cells with no GT are NaN -- "Mean of empty slice" is the
+            # expected state here, not a problem worth warning about.
             warnings.simplefilter("ignore", category=RuntimeWarning)
             out["ap"][aname] = np.nanmean(ap_per_cls, axis=0)
             out["ap50"][aname] = ap_per_cls[i50]
@@ -283,18 +302,19 @@ def evaluate_detection(images, n_classes=len(CLASS_ORDER),
 
 
 # ---------------------------------------------------------------------------
-# Koloni sayimi -- mikrobiyolojide ASIL is bu, mAP vekil olcut
+# Colony counting -- in microbiology this is the ACTUAL task; mAP is a proxy
 # ---------------------------------------------------------------------------
 
 def counting_metrics(images, conf_thr: float, n_classes=len(CLASS_ORDER)):
     """
-    Goruntu basina tahmin edilen koloni sayisi vs gercek.
+    Predicted vs. true colony count per image.
 
-    DIKKAT: conf_thr TEST kumesinde secilemez. VAL'da secilip donduruldu,
-    teste oyle uygulanir. evaluate.py bunu zorunlu tutuyor.
+    WARNING: conf_thr must NOT be selected on the test set. It is chosen on VAL,
+    frozen, and applied to test. evaluate.py enforces this at runtime.
 
-    sMAPE tanimi (simetrik, %0-200 arasi):
-        200 * |p - g| / (|p| + |g|),   p = g = 0 ise 0
+    sMAPE definition (symmetric, bounded 0-200%):
+        200 * |p - g| / (|p| + |g|),   0 when p = g = 0
+    Plain MAPE diverges on empty plates; sMAPE does not.
     """
     g_tot, p_tot = [], []
     g_cls = {c: [] for c in range(n_classes)}
@@ -314,8 +334,8 @@ def counting_metrics(images, conf_thr: float, n_classes=len(CLASS_ORDER)):
         p = np.asarray(p, float)
         if len(g) == 0:
             return {k: float("nan") for k in
-                    ("MAE", "RMSE", "sMAPE", "ME", "n_goruntu",
-                     "gercek_toplam", "tahmin_toplam", "r")}
+                    ("MAE", "RMSE", "sMAPE", "ME", "n_images",
+                     "true_total", "pred_total", "r")}
         err = p - g
         denom = np.abs(p) + np.abs(g)
         smape = np.where(denom > 0, 200.0 * np.abs(err) / np.maximum(denom, 1e-12), 0.0)
@@ -326,31 +346,34 @@ def counting_metrics(images, conf_thr: float, n_classes=len(CLASS_ORDER)):
             "MAE": float(np.abs(err).mean()),
             "RMSE": float(np.sqrt((err ** 2).mean())),
             "sMAPE": float(smape.mean()),
-            "ME": float(err.mean()),                 # + = fazla sayiyor
-            "n_goruntu": int(len(g)),
-            "gercek_toplam": int(g.sum()),
-            "tahmin_toplam": int(p.sum()),
+            # Signed mean error. MAE hides BIAS: telling a microbiologist
+            # "the model systematically undercounts" is more useful than
+            # "MAE is 4.2".  + means overcounting.
+            "ME": float(err.mean()),
+            "n_images": int(len(g)),
+            "true_total": int(g.sum()),
+            "pred_total": int(p.sum()),
             "r": r,
         }
 
-    res = {"conf_thr": float(conf_thr), "toplam": block(g_tot, p_tot), "sinif": {}}
+    res = {"conf_thr": float(conf_thr), "total": block(g_tot, p_tot), "per_class": {}}
     for c in range(n_classes):
-        res["sinif"][CLASS_ORDER[c]] = block(g_cls[c], p_cls[c])
+        res["per_class"][CLASS_ORDER[c]] = block(g_cls[c], p_cls[c])
     return res
 
 
 def select_conf_threshold(images, grid=None, metric="MAE",
                           n_classes=len(CLASS_ORDER)):
     """
-    VAL kumesinde sayim hatasini en aza indiren conf esigini bulur.
-    Donen deger PROTOKOLE yazilir; test kumesinde bir daha aranmaz.
+    Find the confidence threshold that minimises counting error ON VAL.
+    The returned value goes into the protocol; it is never re-searched on test.
     """
     grid = grid if grid is not None else np.round(np.arange(0.05, 0.91, 0.05), 2)
     best, best_v = None, np.inf
-    egri = []
+    curve = []
     for t in grid:
-        m = counting_metrics(images, float(t), n_classes)["toplam"][metric]
-        egri.append((float(t), float(m)))
+        m = counting_metrics(images, float(t), n_classes)["total"][metric]
+        curve.append((float(t), float(m)))
         if m < best_v:
             best, best_v = float(t), float(m)
-    return best, egri
+    return best, curve

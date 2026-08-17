@@ -1,0 +1,44 @@
+# Baseline C -- COPY-PASTE / MOSAIC / MIXUP
+#
+# Rides on top of base.yaml.
+# This is the REAL competitor of diffusion. Roadmap Phase 4: the copy-paste arm
+# runs in the pilot at the same time as diffusion, because it is cheap and its
+# result determines the story of the paper.
+#
+# WARNING -- the copy_paste of Ultralytics requires a segmentation mask.
+# On the detect task copy_paste may silently have no effect. Two options:
+#   (a) check the version; if it does not work on detect, then
+#   (b) produce OFFLINE copy-paste with src/generate/copy_paste.py
+#       (paste colony crops onto real plates, moving the box along with them)
+# Write into decisions.md which one was used. A baseline that is silently
+# ineffective produces a fake gain in favour of diffusion -- this is the most
+# dangerous mistake of all.
+
+augment:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  flipud: 0.5
+
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  shear: 0.0
+  perspective: 0.0
+
+  mosaic: 1.0
+  close_mosaic: 10      # mosaic off for the last 10 epochs -- Ultralytics recommendation
+  mixup: 0.15
+  copy_paste: 0.3
+  copy_paste_mode: flip
+  erasing: 0.0
+  auto_augment: null
+  bgr: 0.0
+
+# If offline copy-paste is going to be used:
+offline_copy_paste:
+  enabled: false
+  target_colony_multiplier: 1.5   # raise the colony count per image to ~1.5x
+  source: train                   # crop ONLY from the train set of that level
+                                  # (cropping from val/test would be leakage)

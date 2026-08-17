@@ -20,9 +20,9 @@ AGAR JSON  →  convert.py  →  manifest.csv + YOLO etiketleri
                                     ↓
                      train.py + base.yaml  →  runs/<ad>/weights/best.pt
                                     ↓
-                            evaluate.py  →  ozet.json
+                            evaluate.py  →  summary.json
                                     ↓
-                             butce.py  →  "sığıyor mu"
+                             budget.py  →  "sığıyor mu"
 ```
 
 ---
@@ -60,7 +60,7 @@ başına koloni sayısı, tür kombinasyonları ve kalite kontrolleri çıkarır
    örnekleniyor. Uydurulmuyor.
 
 **Bakman gereken çıktı:** `data/processed/reports/`. Özellikle
-`sinif_ozeti.csv` — C.albicans medyanı 27.5 px, S.aureus 29 px. Bu iki sayı
+`class_summary.csv` — C.albicans medyanı 27.5 px, S.aureus 29 px. Bu iki sayı
 `imgsz=1280` kararının tüm gerekçesi.
 
 ---
@@ -145,11 +145,11 @@ yazılacak ve sonradan geri dönüp ölçmek mümkün değil.
 Ayrıca augmentation politikasını komut satırından değil config'den alıyor —
 "hangi koşuda ne açıktı" sorusu üç ay sonra cevaplanabilir olsun diye.
 
-**Çıktı:** `runs/<ad>/olcum.json`. `butce.py` bunu okuyor.
+**Çıktı:** `runs/<ad>/run_metrics.json`. `budget.py` bunu okuyor.
 
 ---
 
-### 7. `scripts/butce.py` — bütçe hesabı
+### 7. `scripts/budget.py` — bütçe hesabı
 
 Tek ölçülmüş koşudan tüm gridi ölçekler. Model: süre ≈ görüntü sayısı × epoch ×
 imgsz². Bugün verdiği cevap: **61 koşu bu dizüstünde ~470–720 GPU-saat**, yani
@@ -215,8 +215,8 @@ tekrarlamak demek.
 1. `analyze_manifest.py` çıktısına birlikte bakıp yerleşim dağılımını çıkarmak
    (koloniler plak merkezine mi toplanıyor, kenara mı; yoğunluk nasıl dağılıyor;
    koloniler birbirine değiyor mu)
-2. `src/generate/yerlesim.py` — o dağılımdan örnekleyen kod
-3. `src/generate/maske.py` — maske + etiket üretici
+2. `src/generate/layout.py` — o dağılımdan örnekleyen kod
+3. `src/generate/mask.py` — maske + etiket üretici
 4. Gözle kontrol: ürettiğimiz maskeler gerçek plakların yerleşimine benziyor mu
 
 Difüzyona daha girmiyoruz. Önce "nereye ne koyacağız" sorusunu çözüyoruz.

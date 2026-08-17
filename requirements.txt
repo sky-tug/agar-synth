@@ -1,8 +1,11 @@
 # AGAR-SYNTH bagimliliklari
-# PyTorch BURADA YOK -- CUDA surumune gore ayri kuruluyor (scripts/kurulum.sh)
+# PyTorch BURADA YOK -- CUDA surumune gore ayri kuruluyor (scripts/setup.sh)
 
 # --- Faz 1-2: veri hatti, tespit, olcum ---
-ultralytics>=8.3.0        # YOLO. Surum YOLO26'yi tanimiyorsa base.yaml'da yolo11n.pt'ye dus
+# Karar 3.46: >=8.3.0 idi. Ama base.yaml yolo26n.pt ve cutmix istiyor, ikisi de
+# 8.4'te geldi -- yani eski kisit, config'i CALISTIRAMAYACAK bir surume izin
+# veriyordu. Olcumler 8.4.118 ile yapildi; Faz 5'te `pip freeze > requirements.lock`.
+ultralytics>=8.4.118
 pycocotools>=2.0.7        # olcum kodunun capraz dogrulamasi (test_metrics.py test 10)
 numpy>=1.26
 pandas>=2.0

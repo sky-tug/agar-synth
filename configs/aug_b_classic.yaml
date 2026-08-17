@@ -1,0 +1,47 @@
+# Baseline B -- CLASSIC GEOMETRIC + COLOUR TRANSFORMS
+#
+# Rides on top of base.yaml (train.py --config base.yaml --overlay aug_b_classic.yaml)
+# Only the augment block changes. Model, imgsz, epochs, seed -- all the same.
+#
+# Purpose: the first arm of the question "diffusion is an expensive operation;
+# if cheap classic transforms give the same gain, there is no practical
+# justification left for diffusion".
+#
+# The values here were kept close to the Ultralytics detection defaults so that
+# the criticism of a "badly tuned baseline" cannot be raised.
+
+augment:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  flipud: 0.5
+
+  # [!] degrees 180.0 -> 0.0  (17 Aug 2026, decision 3.32)
+  # A plate really has no canonical orientation, so ROTATION IS LEGITIMATE. The
+  # problem is in the label: on rotation Ultralytics rotates the four corners of
+  # the box and draws a new AXIS-ALIGNED box (RandomPerspective.apply_bboxes ->
+  # corner min/max). A square box at 45 degrees has its side grow by a factor of
+  # sqrt(2), and its area doubles.
+  # AGAR colonies are ROUND and 96.9% of the boxes are SQUARE: when a round
+  # object is rotated the correct box DOES NOT CHANGE AT ALL. So every rotation
+  # by an angle adds no information, it corrupts the label. If Baseline B is
+  # trained with inflated boxes and then measured on a test with correct boxes,
+  # its mAP drops unfairly -> a FAKE gain in favour of diffusion.
+  # This is the mirror image of the copy_paste risk of Baseline C.
+  # fliplr + flipud already give 4 elements of the dihedral group and do NOT
+  # corrupt the box AT ALL.
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5            # CAUTION: colony size is a class cue; this arm corrupts
+                        # that cue deliberately. The finding will be interpreted
+                        # accordingly.
+  shear: 0.0
+  perspective: 0.0
+
+  mosaic: 0.0
+  mixup: 0.0
+  copy_paste: 0.0
+  erasing: 0.0
+  auto_augment: null
+  bgr: 0.0

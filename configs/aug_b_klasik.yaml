@@ -16,7 +16,18 @@ augment:
   fliplr: 0.5
   flipud: 0.5
 
-  degrees: 180.0        # plagin kanonik yonu yok -> tam donus mesru
+  # 🔴 degrees 180.0 -> 0.0  (17 Agu 2026, karar 3.32)
+  # Plagin kanonik yonu gercekten yok, yani DONDURME MESRU. Sorun etikette:
+  # Ultralytics dondurmede kutunun dort kosesini dondurup EKSENE HIZALI yeni bir
+  # kutu ciziyor (RandomPerspective.apply_bboxes -> kose min/max). Kare bir kutu
+  # 45 derecede kenari sqrt(2) katina cikiyor, alani iki katina.
+  # AGAR kolonileri YUVARLAK ve kutularin %96.9'u KARE: yuvarlak bir nesne
+  # dondurulunce dogru kutu HIC DEGISMEZ. Yani her acili dondurme bilgi katmiyor,
+  # etiketi bozuyor. Baseline B sisirilmis kutularla egitilip dogru kutulu testte
+  # olculurse mAP'i haksiz duser -> difuzyon lehine SAHTE kazanc.
+  # Baseline C'nin copy_paste riskinin aynadaki hali.
+  # fliplr + flipud zaten dihedral grubun 4 elemanini veriyor ve kutuyu HIC bozmuyor.
+  degrees: 0.0
   translate: 0.1
   scale: 0.5            # DIKKAT: koloni boyutu sinif ipucu; bu kol o ipucunu
                         # bilerek bozuyor. Bulgu buna gore yorumlanacak.

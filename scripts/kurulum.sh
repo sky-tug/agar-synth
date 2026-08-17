@@ -75,9 +75,15 @@ python -m pip install --upgrade pip -q
 if python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
   yesil "CUDA'li torch zaten kurulu, atlaniyor"
 else
-  echo "PyTorch (CUDA 12.4) kuruluyor -- birkac dakika surebilir..."
-  python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 \
-    || { sari "cu124 basarisiz, varsayilan tekerlek deneniyor"; python -m pip install torch torchvision; }
+  # Karar 3.47: eskiden cu124 kuruluyordu ama tum olcumler torch 2.13.0+cu130 ile
+  # yapildi. Farkli CUDA yapisi -> sureler karsilastirilamaz, bolum 6'nin tablosu
+  # iki makineden gelirse savunulamaz. CUDA_KANAL ile degistirilebilir.
+  CUDA_KANAL="${CUDA_KANAL:-cu130}"
+  echo "PyTorch ($CUDA_KANAL) kuruluyor -- birkac dakika surebilir..."
+  python -m pip install torch torchvision --index-url "https://download.pytorch.org/whl/$CUDA_KANAL" \
+    || { sari "$CUDA_KANAL basarisiz, cu124 deneniyor"
+         python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 \
+         || { sari "o da olmadi, varsayilan tekerlek"; python -m pip install torch torchvision; }; }
 fi
 
 echo "diger paketler..."
@@ -96,8 +102,10 @@ if torch.cuda.is_available():
     gb = p.total_memory / 1024**3
     print(f"  kart       : {p.name}")
     print(f"  VRAM       : {gb:.1f} GB")
-    # imgsz=1280, YOLO nano, AMP acik icin kaba batch onerisi
-    oneri = 2 if gb < 7 else 4 if gb < 10 else 8 if gb < 14 else 16
+    # imgsz=1280, YOLO26 nano, AMP acik. Karar 2.19'da OLCULDU:
+    # 8 GB kartta batch 8 -> tepe VRAM 6.05 GB (7.6'nin %80'i), tavan orada.
+    # Eski sezgisel 8 GB icin 4 oneriyordu; olculen degerin altinda kaliyordu.
+    oneri = 2 if gb < 5 else 4 if gb < 7 else 8 if gb < 12 else 16
     print()
     print(f"  >>> imgsz=1280 icin onerilen baslangic batch: {oneri}")
     print(f"      Yetmezse dusur. imgsz'yi DUSURME -- koloniler cok kucuk.")
@@ -108,9 +116,14 @@ PY
 python -c "import ultralytics; ultralytics.checks()" 2>&1 | sed 's/^/  /'
 
 # ---------------------------------------------------------------- 5. test ----
-baslik "5/5  olcum kodu sanity testi"
+baslik "5/5  sanity testleri"
+echo "--- olcum kodu (src/eval/test_metrics.py)"
 python src/eval/test_metrics.py
 DURUM=$?
+echo
+echo "--- uretim hatti (src/generate/test_uretim.py)"
+python src/generate/test_uretim.py
+DURUM=$(( DURUM + $? ))
 
 echo
 if [ $DURUM -eq 0 ]; then
@@ -129,7 +142,7 @@ if [ $DURUM -eq 0 ]; then
   echo "Sonra butce tahmini:"
   echo "    python scripts/butce.py --olcum runs/duman_testi/olcum.json --tam-veri 8000 --xai"
 else
-  kirmizi "══════ SANITY TESTI BASARISIZ ══════"
+  kirmizi "══════ SANITY TESTLERI BASARISIZ ══════"
   echo "Yukaridaki HATA satirlarina bak. Bu gecmeden egitime baslama."
   exit 1
 fi

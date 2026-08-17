@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """
-Degerlendirme CLI'si -- HER kosuda ayni sekilde calisir.
+Evaluation CLI -- runs the SAME WAY on EVERY run.
 
-Ne uretir (runs/<name>/eval/ altina):
-  ozet.json          tek satirlik makine-okunur sonuc (grid tablosu bundan kurulur)
-  sinif_ap.csv       sinif x (AP, AP50, AP75) + GT sayilari
-  boyut_ap.csv       all / small / medium / large kirilimi
-  sayim.csv          MAE / RMSE / sMAPE / ME / r  -- toplam ve sinif bazli
-  conf_egrisi.csv    VAL'da conf esigi taramasi (sadece --split val ise)
+What it produces (under runs/<name>/eval/):
+  summary.json       one-line machine-readable result (the grid table is built from it)
+  class_ap.csv       class x (AP, AP50, AP75) + GT counts
+  size_ap.csv        all / small / medium / large breakdown
+  counting.csv       MAE / RMSE / sMAPE / ME / r  -- total and per class
+  conf_curve.csv     conf threshold sweep on VAL (only when --split val)
 
-Iki calisma bicimi:
-  A) --weights ile: Ultralytics modelini yukler, tahminleri kendisi uretir
-  B) --pred-dir ile: hazir YOLO-format tahmin dosyalarindan okur
-     (ikinci detektor / dis model karsilastirmasi icin -- olcum kodu ayni kalir)
+Two modes of operation:
+  A) with --weights: loads the Ultralytics model, produces the predictions itself
+  B) with --pred-dir: reads ready-made YOLO-format prediction files
+     (for the second detector / external model comparison -- the measurement
+     code stays the same)
 
-conf esigi kurali (SIZINTI ONLEME):
-  Sayim metrikleri bir conf esigi gerektirir. Bu esik TEST'te aranamaz.
-    1) once  --split val  ile kosturulur  -> secilen esik ozet.json'a yazilir
-    2) sonra --split test --conf-thr <o deger>  ile kosturulur
-  --split test iken --conf-thr verilmezse program HATA verip durur.
+conf threshold rule (LEAKAGE PREVENTION):
+  Counting metrics require a conf threshold. This threshold cannot be searched
+  on TEST.
+    1) first  run with --split val  -> the selected threshold is written to summary.json
+    2) then   run with --split test --conf-thr <that value>
+  If --conf-thr is not given while --split test, the program stops with an ERROR.
 
-Kullanim:
+Usage:
     python src/eval/evaluate.py --weights runs/G100_s0/weights/best.pt \\
         --data data/processed --split val --out runs/G100_s0/eval
     python src/eval/evaluate.py --weights runs/G100_s0/weights/best.pt \\
@@ -37,25 +39,39 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 from src.eval.metrics import (  # noqa: E402
     AREA_RANGES_COCO, CLASS_ORDER, ImageAnno, counting_metrics,
     evaluate_detection, read_yolo_txt, select_conf_threshold,
 )
 
-# Tahminler bu esigin ALTINDA hic kaydedilmez. mAP icin dusuk tutulur
-# (COCO da tum tespitleri kullanir); sayim esigi ayrica uygulanir.
+# Predictions BELOW this threshold are never recorded at all. It is kept low
+# for mAP (COCO also uses every detection); the counting threshold is applied
+# separately.
 MIN_CONF = 0.001
-MAX_DET = 1000          # AGAR'da bir plakta 125'e kadar koloni var -> bol tut
+
+# Decision 3.48: max_det and nms_iou used to be HARD-CODED HERE (1000 / 0.7)
+# and the `train.max_det` / `train.nms_iou` values in base.yaml were not read
+# anywhere -- changing the config did nothing. In Phase 5, when we say "we are
+# freezing the protocol", the thing that gets frozen has to be the thing that
+# actually runs. They are now read from the config; the values below are only
+# a FALLBACK.
+FALLBACK_MAX_DET = 1000    # AGAR has up to 125 colonies on a plate -> keep it generous
+FALLBACK_NMS_IOU = 0.7
 
 
 def stems_of(data: Path, split: str) -> list[str]:
-    p = Path("splits") / f"{split}.txt"
+    # Same rule as train.py: paths are resolved relative to ROOT, not relative
+    # to the working directory. The previous version used Path("splits") -> it
+    # only worked from the repo root, and if some other directory contained a
+    # "splits/" it could read the WRONG split list.
+    p = ROOT / "splits" / f"{split}.txt"
     if not p.exists():
-        sys.exit(f"HATA: {p} yok. once  python src/make_splits.py --data {data}")
+        sys.exit(f"ERROR: {p} does not exist. first run  python src/make_splits.py --data {data}")
     s = [x.strip() for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
     if not s:
-        sys.exit(f"HATA: {p} bos. Demo pakette val/test bos cikar -- tam veri gerekli.")
+        sys.exit(f"ERROR: {p} is empty. In the demo package val/test come out empty -- the full data is required.")
     return s
 
 
@@ -64,7 +80,7 @@ def image_path_of(data: Path, stem: str) -> Path:
         c = data / "images" / f"{stem}{ext}"
         if c.exists():
             return c
-    sys.exit(f"HATA: {stem} icin goruntu bulunamadi ({data / 'images'})")
+    sys.exit(f"ERROR: no image found for {stem} ({data / 'images'})")
 
 
 def load_gt(data: Path, stems: list[str]) -> list[ImageAnno]:
@@ -80,15 +96,27 @@ def load_gt(data: Path, stems: list[str]) -> list[ImageAnno]:
 
 
 def fill_preds_from_dir(images, pred_dir: Path):
-    """Hazir tahminler: <stem>.txt, satir = cls xc yc w h conf (normalize)."""
+    """Ready-made predictions: <stem>.txt, line = cls xc yc w h conf (normalized)."""
     for im in images:
         dc, db, ds = read_yolo_txt(pred_dir / f"{im.stem}.txt",
                                    im.width, im.height, with_conf=True)
         im.dt_cls, im.dt_box, im.dt_conf = dc, db, ds
 
 
+def read_protocol(config: Path):
+    """Read the inference parameters from base.yaml (decision 3.48)."""
+    if not config.exists():
+        print(f"  ! {config} does not exist -- using fallback values "
+              f"(max_det={FALLBACK_MAX_DET}, nms_iou={FALLBACK_NMS_IOU})", file=sys.stderr)
+        return FALLBACK_MAX_DET, FALLBACK_NMS_IOU
+    import yaml
+    t = (yaml.safe_load(config.read_text(encoding="utf-8")) or {}).get("train", {}) or {}
+    return int(t.get("max_det", FALLBACK_MAX_DET)), float(t.get("nms_iou", FALLBACK_NMS_IOU))
+
+
 def fill_preds_from_model(images, data: Path, weights: str, imgsz: int,
-                          device: str, batch: int, half: bool):
+                          device: str, batch: int, half: bool,
+                          max_det: int, nms_iou: float):
     from ultralytics import YOLO
     model = YOLO(weights)
     paths = [str(image_path_of(data, im.stem)) for im in images]
@@ -97,13 +125,35 @@ def fill_preds_from_model(images, data: Path, weights: str, imgsz: int,
     boxes_all = []
     for i in range(0, len(paths), batch):
         chunk = paths[i:i + batch]
-        res = model.predict(chunk, imgsz=imgsz, conf=MIN_CONF, iou=0.7,
-                            max_det=MAX_DET, device=device, half=half,
+        res = model.predict(chunk, imgsz=imgsz, conf=MIN_CONF, iou=nms_iou,
+                            max_det=max_det, device=device, half=half,
                             verbose=False, stream=False)
         boxes_all.extend(res)
-    cikarim_s = time.perf_counter() - t0
+    infer_s = time.perf_counter() - t0
 
-    for im, r in zip(images, boxes_all):
+    # Predictions are matched to images BY PATH, not BY POSITION.
+    # The previous version used zip(images, boxes_all): if a single image is
+    # skipped, zip silently stops at the shorter one and ALL images AFTER THAT
+    # POINT get matched with the wrong predictions. There is no error message,
+    # and mAP goes nuts.
+    if len(boxes_all) != len(images):
+        sys.exit(f"ERROR: {len(images)} images were sent, {len(boxes_all)} predictions "
+                 f"came back. Ultralytics may have skipped some images "
+                 f"(a corrupt file?). The matching is not trustworthy, stopped.")
+
+    by_stem = {}
+    for r in boxes_all:
+        st = Path(getattr(r, "path", "") or "").stem
+        if st in by_stem:
+            sys.exit(f"ERROR: two predictions came back for the same stem: {st}. "
+                     f"Image names must be unique.")
+        by_stem[st] = r
+
+    for im in images:
+        r = by_stem.get(im.stem)
+        if r is None:
+            sys.exit(f"ERROR: no prediction found for {im.stem}. "
+                     f"(Is .path missing from the Ultralytics results? check the version)")
         b = r.boxes
         if b is None or len(b) == 0:
             im.dt_cls = np.zeros(0, int)
@@ -114,8 +164,8 @@ def fill_preds_from_model(images, data: Path, weights: str, imgsz: int,
         im.dt_box = b.xyxy.cpu().numpy().astype(float)
         im.dt_conf = b.conf.cpu().numpy().astype(float)
 
-    return {"cikarim_saniye": round(cikarim_s, 3),
-            "goruntu_basina_ms": round(1000 * cikarim_s / max(len(images), 1), 2)}
+    return {"inference_sec": round(infer_s, 3),
+            "ms_per_image": round(1000 * infer_s / max(len(images), 1), 2)}
 
 
 # ---------------------------------------------------------------------------
@@ -125,46 +175,59 @@ def main():
     ap.add_argument("--data", default="data/processed")
     ap.add_argument("--split", default="test", choices=["train", "val", "test"])
     ap.add_argument("--weights", help="Ultralytics .pt")
-    ap.add_argument("--pred-dir", help="hazir YOLO-format tahmin klasoru")
-    ap.add_argument("--out", required=True, help="cikti klasoru")
+    ap.add_argument("--pred-dir", help="folder of ready-made YOLO-format predictions")
+    ap.add_argument("--out", required=True, help="output folder")
+    ap.add_argument("--config", default=str(ROOT / "configs" / "base.yaml"),
+                    help="max_det and nms_iou are read from here (decision 3.48)")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--device", default="0")
     ap.add_argument("--batch", type=int, default=4)
     ap.add_argument("--half", action="store_true")
     ap.add_argument("--conf-thr", type=float, default=None,
-                    help="sayim esigi. --split test icin ZORUNLU (val'da secilmis olan)")
-    ap.add_argument("--etiket", default="", help="ozet.json'a yazilacak kosu adi")
+                    help="counting threshold. MANDATORY for --split test (the one selected on val)")
+    ap.add_argument("--tag", default="", help="run name to be written into summary.json")
     args = ap.parse_args()
 
     if bool(args.weights) == bool(args.pred_dir):
-        sys.exit("HATA: --weights VEYA --pred-dir ver (ikisi birden degil).")
+        sys.exit("ERROR: give --weights OR --pred-dir (not both).")
     if args.split == "test" and args.conf_thr is None:
-        sys.exit("HATA: test kumesinde conf esigi ARANAMAZ.\n"
-                 "  once: --split val   (esigi secer)\n"
-                 "  sonra: --split test --conf-thr <secilen deger>")
+        sys.exit("ERROR: the conf threshold CANNOT BE SEARCHED on the test set.\n"
+                 "  first: --split val   (selects the threshold)\n"
+                 "  then:  --split test --conf-thr <selected value>")
+    if args.split == "train" and args.conf_thr is None:
+        # Searching the threshold on train is not leakage, but it is meaningless
+        # (the model has seen that data). It used to leave selected=None, which
+        # raised a TypeError inside counting_metrics.
+        sys.exit("ERROR: --conf-thr is MANDATORY for --split train.\n"
+                 "  The threshold is NOT SEARCHED on the training set (the model has "
+                 "seen that data, the selection comes out optimistic).\n"
+                 "  Give the threshold selected on VAL: --conf-thr <value>")
 
     data = Path(args.data).expanduser().resolve()
     out = Path(args.out).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
 
     stems = stems_of(data, args.split)
-    print(f"{args.split}: {len(stems)} goruntu")
+    print(f"{args.split}: {len(stems)} images")
 
     images = load_gt(data, stems)
-    zaman = {}
+    timing = {}
     if args.pred_dir:
         fill_preds_from_dir(images, Path(args.pred_dir).resolve())
     else:
-        zaman = fill_preds_from_model(images, data, args.weights, args.imgsz,
-                                      args.device, args.batch, args.half)
+        max_det, nms_iou = read_protocol(Path(args.config))
+        print(f"protocol: max_det={max_det}  nms_iou={nms_iou}  ({args.config})")
+        timing = fill_preds_from_model(images, data, args.weights, args.imgsz,
+                                       args.device, args.batch, args.half,
+                                       max_det, nms_iou)
 
-    # ---------------- Tespit metrikleri ----------------
+    # ---------------- Detection metrics ----------------
     det = evaluate_detection(images, n_classes=len(CLASS_ORDER),
                              area_ranges=AREA_RANGES_COCO)
 
     import pandas as pd
 
-    sinif_tab = pd.DataFrame({
+    class_tab = pd.DataFrame({
         "AP50-95": det["ap"]["all"],
         "AP50": det["ap50"]["all"],
         "AP75": det["ap75"]["all"],
@@ -176,70 +239,72 @@ def main():
         "n_GT_medium": det["n_gt"]["medium"],
         "n_GT_large": det["n_gt"]["large"],
     }, index=CLASS_ORDER).round(4)
-    sinif_tab.to_csv(out / "sinif_ap.csv")
+    class_tab.to_csv(out / "class_ap.csv")
 
-    boyut_tab = pd.DataFrame({
+    size_tab = pd.DataFrame({
         a: {"mAP50-95": det["map"][a], "mAP50": det["map50"][a],
             "mAP75": det["map75"][a], "n_GT": int(det["n_gt"][a].sum())}
         for a in AREA_RANGES_COCO
     }).T.round(4)
-    boyut_tab.to_csv(out / "boyut_ap.csv")
+    size_tab.to_csv(out / "size_ap.csv")
 
-    # ---------------- Sayim metrikleri ----------------
+    # ---------------- Counting metrics ----------------
     if args.split == "val" and args.conf_thr is None:
-        secilen, egri = select_conf_threshold(images)
-        pd.DataFrame(egri, columns=["conf_thr", "MAE"]).to_csv(
-            out / "conf_egrisi.csv", index=False)
-        print(f"\nVAL'da secilen conf esigi: {secilen}  "
-              f"-> test kosusunda --conf-thr {secilen} ver")
+        selected, curve = select_conf_threshold(images)
+        pd.DataFrame(curve, columns=["conf_thr", "MAE"]).to_csv(
+            out / "conf_curve.csv", index=False)
+        print(f"\nconf threshold selected on VAL: {selected}  "
+              f"-> give --conf-thr {selected} in the test run")
     else:
-        secilen = args.conf_thr
+        selected = args.conf_thr
 
-    say = counting_metrics(images, secilen)
-    say_tab = pd.DataFrame({"toplam": say["toplam"], **say["sinif"]}).T.round(4)
-    say_tab.to_csv(out / "sayim.csv")
+    cnt = counting_metrics(images, selected)
+    cnt_tab = pd.DataFrame({"total": cnt["total"], **cnt["per_class"]}).T.round(4)
+    cnt_tab.to_csv(out / "counting.csv")
 
-    # ---------------- Ozet ----------------
-    ozet = {
-        "etiket": args.etiket or Path(args.out).parent.name,
+    # ---------------- Summary ----------------
+    summary = {
+        "tag": args.tag or Path(args.out).parent.name,
         "split": args.split,
-        "n_goruntu": len(images),
-        "n_gt_kutu": int(det["n_gt"]["all"].sum()),
+        "n_images": len(images),
+        "n_gt_boxes": int(det["n_gt"]["all"].sum()),
         "imgsz": args.imgsz,
-        "conf_thr_sayim": secilen,
-        # --- ana metrik ---
+        "max_det": None if args.pred_dir else max_det,
+        "nms_iou": None if args.pred_dir else nms_iou,
+        "conf_thr_count": selected,
+        # --- primary metric ---
         "mAP50-95": det["map"]["all"],
         "mAP50": det["map50"]["all"],
         "mAP75": det["map75"]["all"],
         "mAP_small": det["map"]["small"],
         "mAP_medium": det["map"]["medium"],
         "mAP_large": det["map"]["large"],
-        # --- sinif bazli ana metrik ---
+        # --- primary metric per class ---
         **{f"AP_{c}": float(det["ap"]["all"][i]) for i, c in enumerate(CLASS_ORDER)},
-        # --- sayim ---
-        "MAE": say["toplam"]["MAE"],
-        "RMSE": say["toplam"]["RMSE"],
-        "sMAPE": say["toplam"]["sMAPE"],
-        "ME": say["toplam"]["ME"],
-        "sayim_r": say["toplam"]["r"],
-        **zaman,
+        # --- counting ---
+        "MAE": cnt["total"]["MAE"],
+        "RMSE": cnt["total"]["RMSE"],
+        "sMAPE": cnt["total"]["sMAPE"],
+        "ME": cnt["total"]["ME"],
+        "count_r": cnt["total"]["r"],
+        **timing,
     }
-    ozet = {k: (round(v, 5) if isinstance(v, float) else v) for k, v in ozet.items()}
-    (out / "ozet.json").write_text(json.dumps(ozet, indent=2, ensure_ascii=False),
-                                   encoding="utf-8")
+    summary = {k: (round(v, 5) if isinstance(v, float) else v) for k, v in summary.items()}
+    (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False),
+                                      encoding="utf-8")
 
-    # ---------------- Ekrana ----------------
-    print("\n=== BOYUT KIRILIMI ===")
-    print(boyut_tab.to_string())
-    print("\n=== SINIF BAZLI ===")
-    print(sinif_tab[["AP50-95", "AP50", "AP_small", "AP_medium", "AP_large",
+    # ---------------- To the screen ----------------
+    print("\n=== SIZE BREAKDOWN ===")
+    print(size_tab.to_string())
+    print("\n=== PER CLASS ===")
+    print(class_tab[["AP50-95", "AP50", "AP_small", "AP_medium", "AP_large",
                      "n_GT"]].to_string())
-    print(f"\n=== SAYIM (conf={secilen}) ===")
-    print(say_tab[["MAE", "RMSE", "sMAPE", "ME", "gercek_toplam",
-                   "tahmin_toplam"]].to_string())
-    print(f"\nANA METRIK  mAP50-95 = {ozet['mAP50-95']:.4f}"
-          f"   (small {ozet['mAP_small']:.4f})")
-    print(f"ozet -> {out / 'ozet.json'}")
+    print(f"\n=== COUNTING (conf={selected}) ===")
+    print(cnt_tab[["MAE", "RMSE", "sMAPE", "ME", "true_total",
+                   "pred_total"]].to_string())
+    print(f"\nPRIMARY METRIC  mAP50-95 = {summary['mAP50-95']:.4f}"
+          f"   (small {summary['mAP_small']:.4f})")
+    print(f"summary -> {out / 'summary.json'}")
 
 
 if __name__ == "__main__":

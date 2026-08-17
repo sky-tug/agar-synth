@@ -1,50 +1,52 @@
 # =============================================================================
-# TEMEL PROTOKOL -- tum kosularda SABIT
+# BASE PROTOCOL -- FIXED across all runs
 # =============================================================================
-# Bu dosya Faz 5'te PROTOCOL.md ile birlikte DONDURULACAK.
-# Buradaki her sayi bir karardir; degistirirsen decisions.md'ye gerekcesiyle
-# yaz ve etkilenen kosulari YENIDEN kostur. Sonuclari gordukten sonra yapilan
-# ayar "cherry-picking" olarak okunur.
+# This file will be FROZEN in Phase 5 together with PROTOCOL.md.
+# Every number here is a decision; if you change one, write it into decisions.md
+# with its rationale and RE-RUN the affected runs. A tweak made after seeing the
+# results reads as "cherry-picking".
 #
-# Onemli sinirlama (makalede yazilacak): model tum konfigurasyonlarda sabit.
-# Bulgular VERI hakkindadir, model hakkinda degil.
+# Important limitation (to be written in the paper): the model is fixed across
+# all configurations. The findings are about the DATA, not about the model.
 # =============================================================================
 
 model:
-  # YOLO26 nano. NMS'siz, kucuk nesne odakli etiket atamasi (STAL).
-  # Not: ultralytics surumu YOLO26'yi tanimiyorsa yolo11n.pt'ye dus ve
-  # bunu decisions.md'ye yaz -- sessizce degistirme.
+  # YOLO26 nano. NMS-free, small-object oriented label assignment (STAL).
+  # Note: if the ultralytics version does not know YOLO26, fall back to
+  # yolo11n.pt and write this into decisions.md -- do not change it silently.
   weights: yolo26n.pt
   task: detect
 
 data:
-  root: data/processed          # convert.py ciktisi
-  splits_dir: splits            # git'e commit edilen stem listeleri
+  root: data/processed          # convert.py output
+  splits_dir: splits            # stem lists committed to git
   nc: 5
   names: [S.aureus, B.subtilis, P.aeruginosa, E.coli, C.albicans]
-  # ^ SIRA convert.py ile AYNI olmak zorunda. Degisirse tum etiketler bozulur.
+  # ^ The ORDER has to be the SAME as in convert.py. If it changes, all labels break.
 
 train:
-  # --- GORUNTU BOYUTU: projenin en kritik tek hiperparametresi -------------
-  # AGAR lower-resolution goruntuleri 2048x2048.
-  # Demo paketten olculen koloni boyutlari (orijinal pikselde):
-  #     C.albicans  medyan 27.5 px   (min 14)
-  #     S.aureus    medyan 29.0 px   (min 24)
-  #     E.coli      medyan 128 px
-  # imgsz=640  -> C.albicans 8.6 px  ... P5 basinin stride'i 8, tespit imkansiza yakin
+  # --- IMAGE SIZE: the single most critical hyperparameter of the project -----
+  # The AGAR lower-resolution images are 2048x2048.
+  # Colony sizes measured from the demo package (in original pixels):
+  #     C.albicans  median 27.5 px   (min 14)
+  #     S.aureus    median 29.0 px   (min 24)
+  #     E.coli      median 128 px
+  # imgsz=640  -> C.albicans 8.6 px  ... the stride of the P5 head is 8, detection is close to impossible
   # imgsz=1024 -> 13.8 px
-  # imgsz=1280 -> 17.2 px            <- secilen
+  # imgsz=1280 -> 17.2 px            <- the chosen one
   # imgsz=1536 -> 20.6 px
-  # AGAR makalesi de dusuk cozunurlukte en iyi sonucu tam boyuta yakin alarak
-  # aldi (mAP %59,4). 640 secersen baseline AGAR'in altinda kalir ve Faz 2'nin
-  # kapisi "baseline makul mu" sorusuna HAYIR cevabi verir.
-  # Bedeli: VRAM ve sure ~ imgsz^2. 1280, 640'in ~4 katidir.
-  # Karar: 1280 ile basla. VRAM yetmezse batch'i dusur, imgsz'yi DUSURME.
+  # The AGAR paper also got its best result at low resolution by staying close
+  # to the full size (mAP 59.4%). If you pick 640, the baseline stays below
+  # AGAR's and the gate of Phase 2 answers NO to the question "is the baseline
+  # reasonable".
+  # The cost: VRAM and time ~ imgsz^2. 1280 is ~4x of 640.
+  # Decision: start with 1280. If VRAM is not enough, lower the batch, do NOT
+  # lower the imgsz.
   imgsz: 1280
 
   epochs: 150
-  patience: 50               # erken durdurma; sure olcumu icin loglanacak
-  batch: 8                   # VRAM'e gore scripts/train.py --batch ile ezilir
+  patience: 50               # early stopping; will be logged for the time measurement
+  batch: 8                   # overridden per VRAM via scripts/train.py --batch
   optimizer: AdamW
   lr0: 0.001
   lrf: 0.01
@@ -54,46 +56,47 @@ train:
   cos_lr: true
   deterministic: true
   workers: 8
-  amp: true                  # karma hassasiyet; sure olcumu bununla yapilir
+  amp: true                  # mixed precision; the time measurement is done with this
   val: true
-  plots: false               # grid'de gereksiz I/O
+  plots: false               # unnecessary I/O in the grid
   save_period: -1
 
-  # --- Kucuk nesne icin ------------------------------------------------------
-  # Sayim isi: bir plakta 125'e kadar koloni var, varsayilan 300 yeterli ama
-  # kalabalik plaklarda kirpma riskine karsi yukseltildi.
+  # --- For small objects -----------------------------------------------------
+  # This is a counting task: there are up to 125 colonies on a plate, the
+  # default of 300 is enough, but it was raised as insurance against clipping on
+  # crowded plates.
   max_det: 1000
-  nms_iou: 0.7               # YOLO26 NMS'siz calisiyorsa yok sayilir
+  nms_iou: 0.7               # ignored if YOLO26 runs NMS-free
 
 # =============================================================================
-# AUGMENTATION POLITIKASI -- Faz 2'nin kritik karari
+# AUGMENTATION POLICY -- the critical decision of Phase 2
 # =============================================================================
-# Sorun: Ultralytics varsayilan olarak mosaic=1.0 ile gelir (ve bazi surumlerde
-# mixup/copy_paste sifir olmayabilir). Hicbir sey yapmazsan G50/G25/G10 kontrol
-# gruplarin ZATEN klasik veri artirma kullaniyor olur -> "difuzyon vs klasik"
-# karsilastirmasi bastan bulanir. Difuzyonun kazanci mosaic'in kazancindan
-# ayrilamaz.
+# The problem: Ultralytics ships with mosaic=1.0 by default (and in some
+# versions mixup/copy_paste may be non-zero). If you do nothing, your G50/G25/G10
+# control groups ALREADY use classic data augmentation -> the "diffusion vs
+# classic" comparison is blurred from the start. The gain of diffusion cannot be
+# separated from the gain of mosaic.
 #
-# Karar: ANA GRIDDE minimum augmentation. Sadece plak fizigine uygun,
-# etiket-koruyan donusumler:
-#   - fliplr / flipud: agar plaginin kanonik yonu YOK, ikisi de mesru
-#   - hsv: aydinlatma ve besiyeri renk degiskenligi gercek bir varyans kaynagi
-# Kapali olanlar ve neden:
-#   - mosaic: 4 plagi tek karede birlestirir; olcegi bozar, plak sinirini yok
-#     eder, koloni yogunlugu dagilimini gercekten uzaklastirir. Sayim isi icin
-#     ozellikle zararli.
-#   - mixup: iki plagin seffaf ustuste binmesi mikrobiyolojik olarak anlamsiz
-#   - copy_paste: bu tam olarak Baseline C'nin kolu. Ana gridde acik olursa
-#     "difuzyon vs copy-paste" karsilastirmasi tanimsiz hale gelir.
-#   - scale/translate/shear/perspective: koloni boyutu bir SINIF ipucu
-#     (S.aureus kucuk, E.coli buyuk). Olcegi rastgele oynatmak sinif sinyalini
-#     bozar. Ayrica kutu-koloni hizasini bozma riski.
-#   - erasing: siniflandirma augmentasyonu, tespitte gereksiz
+# Decision: minimum augmentation IN THE MAIN GRID. Only label-preserving
+# transforms that suit the physics of a plate:
+#   - fliplr / flipud: an agar plate has NO canonical orientation, both are legitimate
+#   - hsv: illumination and growth-medium colour variability is a real source of variance
+# The ones that are off, and why:
+#   - mosaic: it merges 4 plates into a single frame; it breaks the scale,
+#     destroys the plate boundary, and pushes the colony density distribution
+#     away from reality. Especially harmful for a counting task.
+#   - mixup: the transparent superposition of two plates is microbiologically meaningless
+#   - copy_paste: this is exactly the arm of Baseline C. If it is on in the main
+#     grid, the "diffusion vs copy-paste" comparison becomes undefined.
+#   - scale/translate/shear/perspective: colony size is a CLASS cue
+#     (S.aureus small, E.coli large). Randomly perturbing the scale corrupts the
+#     class signal. There is also the risk of breaking the box-colony alignment.
+#   - erasing: a classification augmentation, unnecessary in detection
 #
-# Bu politika Baseline A ile AYNI degildir: Baseline A "augmentation yok".
-# Burada flip + HSV var. Yol haritasindaki "Baseline A = ana griddeki
-# G50/G25/G10 ile ayni" ifadesi bu politikayi kastediyor.
-# Baseline B ve C icin: configs/aug_b_klasik.yaml, configs/aug_c_kopyala.yaml
+# This policy is NOT THE SAME as Baseline A: Baseline A is "no augmentation".
+# Here there is flip + HSV. The phrase in the roadmap, "Baseline A = the same as
+# the G50/G25/G10 in the main grid", refers to this policy.
+# For Baseline B and C: configs/aug_b_classic.yaml, configs/aug_c_copypaste.yaml
 # =============================================================================
 augment:
   hsv_h: 0.015
@@ -108,9 +111,9 @@ augment:
   shear: 0.0
   perspective: 0.0
   mosaic: 0.0
-  close_mosaic: 0             # mosaic zaten kapali
+  close_mosaic: 0             # mosaic is off anyway
   mixup: 0.0
-  cutmix: 0.0                 # ultralytics 8.4'te eklendi
+  cutmix: 0.0                 # added in ultralytics 8.4
   copy_paste: 0.0
   erasing: 0.0
   auto_augment: null
@@ -118,52 +121,56 @@ augment:
 
 # =============================================================================
 eval:
-  # Ana metrik. Tablolarda ilk sutun bu.
-  ana_metrik: mAP50-95
-  # "Fark var" esigi -- Faz 4 pilotunda ve ana gridde ayni esik kullanilacak.
-  # Seed'ler arasi standart sapmadan BUYUK olmali; Faz 2 baseline'i bittikten
-  # sonra olculup buraya sabitlenecek.
-  anlamli_fark_esigi: null    # <- G100 x 3 seed olculunce doldur
-  # Sayim conf esigi VAL'da secilir, buraya yazilir, teste oyle uygulanir.
-  conf_thr: null              # <- val kosusundan gelecek
+  # The primary metric. It is the first column in the tables.
+  primary_metric: mAP50-95
+  # The "there is a difference" threshold -- the same threshold will be used in
+  # the Phase 4 pilot and in the main grid. It must be LARGER than the standard
+  # deviation across seeds; it will be measured and fixed here after the Phase 2
+  # baseline is finished.
+  significant_diff_threshold: null    # <- fill in once G100 x 3 seeds is measured
+  # The counting conf threshold is chosen on VAL, written here, and applied to
+  # the test that way.
+  conf_thr: null              # <- will come from the val run
   iou_thrs: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
-  boyut_araliklari: coco      # 32^2 / 96^2, orijinal 2048px goruntude
+  area_ranges: coco           # 32^2 / 96^2, on the original 2048px image
 
-  # Hoca (13 Agu 2026): "Seed sayisini 5'e cikarman yeterli olur. Onlarin
-  # maksimum minimum ve ortalamalarini ilgili skorlara iliskin grafiklerde
-  # gostermen iyi olur."
-  raporlama:
-    grafik: [min, maks, ortalama]   # hata cubugu = min-maks araligi
-    tablo: [ortalama, std]          # std ayrica raporlanacak (n=5 ile savunulabilir)
+  # Advisor (13 Aug 2026): "Raising the number of seeds to 5 will be enough. It
+  # would be good if you showed their maximum, minimum and mean in the plots
+  # relating to the corresponding scores."
+  reporting:
+    plot: [min, max, mean]      # error bar = min-max range
+    table: [mean, std]          # std will also be reported (defensible with n=5)
 
 seeds:
-  ana_grid: [0, 1, 2, 3, 4]   # 5 seed -- hoca onayladi
-  yan_kollar: [0, 1, 2]       # 3 seed -- klasik kol, ablasyon, miktar taramasi
+  main_grid: [0, 1, 2, 3, 4]  # 5 seeds -- approved by the advisor
+  side_arms: [0, 1, 2]        # 3 seeds -- classic arm, ablation, amount sweep
 
 # =============================================================================
-# XAI kolu -- hoca onayladi (opsiyonel bolum, ablasyondan SONRA)
-# "Grad-CAM/++ ile aktivasyon haritalari verebilirsin. IoU, ELR gibi skorlari
-#  da gercek ve sentetik veri oranlari icin verebilirsin."
-# Egitim yok: mevcut agirliklarla yalnizca cikarim. Maliyeti ihmal edilebilir.
+# XAI arm -- approved by the advisor (optional section, AFTER the ablation)
+# "You can provide activation maps with Grad-CAM/++. You can also give scores
+#  such as IoU and ELR for the real and synthetic data ratios."
+# No training: inference only, with the existing weights. The cost is negligible.
 # =============================================================================
 xai:
-  aktif: true
-  yontem: [gradcam, gradcampp]
-  # Karsilastirilacak modeller: gercek destekli vs sentetik destekli
-  konfigurasyonlar: [G100, G25, G25+S, S100]
-  seed: 0                     # tek seed yeter, bu nicel bir ana bulgu degil
-  n_goruntu: 200              # test kumesinden, sinif dengeli ornek
-  metrikler:
-    - IoU                     # isi haritasinin esiklenmis maskesi ile GT kutusu
-    - EBPG                    # Energy-Based Pointing Game (kutu icindeki enerji payi)
-  # NOT: hocanin yazdigi "ELR" standart bir XAI metrigi olarak dogrulanamadi.
-  # En olasi karsiligi EBPG (Energy-Based Pointing Game) -- CAM literaturunde
-  # IoU ile birlikte raporlanan olcut budur. TEYIT EDILECEK; teyit gelene kadar
-  # EBPG olarak uygulanip makalede o adla yazilacak.
+  enabled: true
+  methods: [gradcam, gradcampp]
+  # The models to be compared: real-supported vs synthetic-supported
+  configs: [G100, G25, G25+S, S100]
+  seed: 0                     # a single seed is enough, this is not a quantitative main finding
+  n_images: 200               # from the test set, a class-balanced sample
+  metrics:
+    - IoU                     # thresholded mask of the heat map vs the GT box
+    - EBPG                    # Energy-Based Pointing Game (the energy share inside the box)
+  # NOTE: the "ELR" the advisor wrote could not be verified as a standard XAI
+  # metric. Its most likely counterpart is EBPG (Energy-Based Pointing Game) --
+  # in the CAM literature this is the measure reported together with IoU. TO BE
+  # CONFIRMED; until confirmation arrives it will be implemented as EBPG and
+  # written under that name in the paper.
 
 logging:
   wandb: true
   project: agar-synth
-  # Bolum 6 (hesaplama maliyeti) bu alanlardan yazilacak -- ILK kosudan itibaren
-  olculecek: [toplam_sure_s, epoch_basina_s, gpu_saat, tepe_vram_gb,
-              goruntu_basina_ms, parametre_sayisi, gflops]
+  # Section 6 (computational cost) will be written from these fields -- FROM THE
+  # FIRST run onwards
+  measured_fields: [total_sec, sec_per_epoch, gpu_hours, peak_vram_gb,
+                    ms_per_image, param_count, gflops]

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-AGAR JSON -> YOLO donusumu.
+AGAR JSON -> YOLO conversion.
 
-Ne yapar:
-  - AGAR kokunde *.json dosyalarini tarar
-  - Outline 3.2 filtrelerini uygular (lower-resolution + countable + 5 mikroorganizma)
-  - defects / contamination iceren goruntuleri TAMAMEN atar
-  - Goruntu boyutunu dosyadan okur (JSON'da yok, 2048x2048 varsayilmaz)
-  - out/labels/<id>.txt  ve  out/images/<id>.<ext> (symlink) uretir
-  - out/manifest.csv uretir -> bolme, alt orneklem ve makale veri tablosunun kaynagi
+What it does:
+  - Scans the *.json files under the AGAR root
+  - Applies the Outline 3.2 filters (lower-resolution + countable + 5 microorganisms)
+  - Discards images containing defects / contamination COMPLETELY
+  - Reads the image size from the file itself (it is not in the JSON, 2048x2048 is not assumed)
+  - Produces out/labels/<id>.txt  and  out/images/<id>.<ext> (symlink)
+  - Produces out/manifest.csv -> the source for the splits, the subsamples and the paper's data table
 
-Kullanim:
-    python convert.py --src /yol/AGAR_representative --out data/processed
-    python convert.py --src ... --out ... --copy     # symlink yerine kopyala
+Usage:
+    python convert.py --src /path/AGAR_representative --out data/processed
+    python convert.py --src ... --out ... --copy     # copy instead of symlinking
 """
 
 import argparse
@@ -25,23 +25,23 @@ from pathlib import Path
 
 from PIL import Image
 
-# --- SABIT SINIF SIRASI -- proje boyunca degismeyecek ---------------------
+# --- FIXED CLASS ORDER -- will not change for the whole project -----------
 CLASS_ORDER = ["S.aureus", "B.subtilis", "P.aeruginosa", "E.coli", "C.albicans"]
 CLASS_TO_ID = {c: i for i, c in enumerate(CLASS_ORDER)}
 
-# Kapsam disi birakilan artefakt siniflari
+# Artifact classes left out of scope
 ARTIFACT_CLASSES = {"defects", "contamination"}
 
 IMG_EXTS = [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
 
 
 def normalize_class(name: str) -> str:
-    """'S. aureus' -> 'S.aureus'. AGAR'da her iki yazim da gorulebiliyor."""
+    """'S. aureus' -> 'S.aureus'. Both spellings occur in AGAR."""
     return name.replace(" ", "").strip()
 
 
 def find_image(json_path: Path):
-    """JSON ile ayni isimli goruntu dosyasini bulur."""
+    """Finds the image file that has the same name as the JSON."""
     for ext in IMG_EXTS:
         cand = json_path.with_suffix(ext)
         if cand.exists():
@@ -51,112 +51,127 @@ def find_image(json_path: Path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", required=True, help="AGAR kok klasoru")
-    ap.add_argument("--out", required=True, help="cikti klasoru")
+    ap.add_argument("--src", required=True, help="AGAR root folder")
+    ap.add_argument("--out", required=True, help="output folder")
     ap.add_argument("--background", default="lower-resolution",
-                    help="tutulacak alt kume (varsayilan: lower-resolution). "
-                         "'all' dersen filtre uygulanmaz")
+                    help="subset to keep (default: lower-resolution). "
+                         "if you pass 'all' no filter is applied")
     ap.add_argument("--copy", action="store_true",
-                    help="goruntuleri symlink yerine kopyala")
+                    help="copy the images instead of symlinking them")
     args = ap.parse_args()
 
     src = Path(args.src).expanduser().resolve()
     out = Path(args.out).expanduser().resolve()
     if not src.is_dir():
-        sys.exit(f"HATA: kaynak klasor yok: {src}")
+        sys.exit(f"ERROR: source folder does not exist: {src}")
 
     (out / "labels").mkdir(parents=True, exist_ok=True)
     (out / "images").mkdir(parents=True, exist_ok=True)
 
     json_files = sorted(src.rglob("*.json"))
     if not json_files:
-        sys.exit(f"HATA: {src} altinda hic JSON bulunamadi")
+        sys.exit(f"ERROR: no JSON found under {src}")
 
-    # Sayaclar -- her elenen goruntunun sebebi kayit altinda
+    # Counters -- the reason every image was dropped is on the record
     n = Counter()
-    class_boxes = Counter()          # sinif basina kutu sayisi
-    unknown_classes = Counter()      # beklenmeyen sinif isimleri
+    class_boxes = Counter()          # box count per class
+    unknown_classes = Counter()      # unexpected class names
     rows = []
 
     for jp in json_files:
-        n["json_toplam"] += 1
+        n["json_total"] += 1
 
         try:
             meta = json.loads(jp.read_text(encoding="utf-8"))
         except Exception as e:
-            n["elendi_bozuk_json"] += 1
-            print(f"  ! bozuk JSON atlandi: {jp.name} ({e})")
+            n["dropped_bad_json"] += 1
+            print(f"  ! skipped broken JSON: {jp.name} ({e})")
             continue
 
-        # --- Filtre 1: alt kume ---
+        # --- Filter 1: subset ---
         bg = meta.get("background")
         if args.background != "all" and bg != args.background:
-            n["elendi_alt_kume"] += 1
+            n["dropped_subset"] += 1
             continue
 
         labels = meta.get("labels") or []
 
-        # --- Filtre 2: countable ---
-        # AGAR'da koloni seviyesinde etiket YALNIZCA countable goruntulerde var.
-        # uncountable ve empty goruntulerde labels listesi bos gelir.
+        # --- Filter 2: countable ---
+        # In AGAR, colony-level labels exist ONLY for countable images.
+        # For uncountable and empty images the labels list comes back empty.
+        # Decision 3.43: these two used to be added up in a SINGLE counter. The
+        # data section of the paper will report "how many images were dropped and
+        # why" separately, so they are split apart via colonies_number:
+        # empty -> 0, uncountable -> >0.
         if len(labels) == 0:
-            n["elendi_countable_degil"] += 1
+            cn = meta.get("colonies_number")
+            try:
+                cn = int(cn)
+            except (TypeError, ValueError):
+                cn = None
+            if cn == 0:
+                n["dropped_empty"] += 1
+            elif cn is not None and cn > 0:
+                n["dropped_uncountable"] += 1
+            else:
+                n["dropped_unlabelled_unknown"] += 1
+            n["dropped_not_countable"] += 1
             continue
 
-        # --- Filtre 3: artefakt sinifi iceren goruntuler tamamen atilir ---
-        # (kutuyu silip goruntuyu tutmak modele "burada nesne yok" diye ogretir)
+        # --- Filter 3: images containing an artifact class are dropped entirely ---
+        # (deleting the box but keeping the image teaches the model "there is no object here")
         present = {normalize_class(l.get("class", "")) for l in labels}
         present |= {normalize_class(c) for c in (meta.get("classes") or [])}
         if present & ARTIFACT_CLASSES:
-            n["elendi_artefakt"] += 1
+            n["dropped_artifact"] += 1
             continue
 
-        bilinmeyen = present - set(CLASS_ORDER) - ARTIFACT_CLASSES
-        if bilinmeyen:
-            for b in bilinmeyen:
+        unknown = present - set(CLASS_ORDER) - ARTIFACT_CLASSES
+        if unknown:
+            for b in unknown:
                 unknown_classes[b] += 1
-            n["elendi_bilinmeyen_sinif"] += 1
+            n["dropped_unknown_class"] += 1
             continue
 
-        # --- Goruntu dosyasi ve BOYUTU (JSON'da yok, dosyadan okunuyor) ---
+        # --- Image file and its SIZE (not in the JSON, read from the file) ---
         img_path = find_image(jp)
         if img_path is None:
-            n["elendi_goruntu_yok"] += 1
-            print(f"  ! goruntu bulunamadi: {jp.name}")
+            n["dropped_no_image"] += 1
+            print(f"  ! image not found: {jp.name}")
             continue
         try:
             with Image.open(img_path) as im:
                 W, H = im.size
         except Exception as e:
-            n["elendi_goruntu_acilamadi"] += 1
-            print(f"  ! goruntu acilamadi: {img_path.name} ({e})")
+            n["dropped_image_unreadable"] += 1
+            print(f"  ! could not open image: {img_path.name} ({e})")
             continue
 
-        # --- Kutu donusumu ---
+        # --- Box conversion ---
         lines = []
         per_class = defaultdict(int)
-        atilan_kutu = 0
-        kirpilan_kutu = 0
+        dropped_boxes = 0
+        clipped_boxes = 0
 
         for l in labels:
             cname = normalize_class(l.get("class", ""))
             cid = CLASS_TO_ID.get(cname)
             if cid is None:
-                atilan_kutu += 1
+                dropped_boxes += 1
                 continue
 
-            x, y = float(l["x"]), float(l["y"])          # sol ust kose
+            x, y = float(l["x"]), float(l["y"])          # top-left corner
             w, h = float(l["width"]), float(l["height"])
 
-            # goruntu sinirlarina kirp
+            # clip to the image bounds
             x0, y0 = max(0.0, x), max(0.0, y)
             x1, y1 = min(float(W), x + w), min(float(H), y + h)
             if (x0, y0, x1, y1) != (x, y, x + w, y + h):
-                kirpilan_kutu += 1
+                clipped_boxes += 1
 
             bw, bh = x1 - x0, y1 - y0
-            if bw <= 1 or bh <= 1:      # bozuk / sifir alanli kutu
-                atilan_kutu += 1
+            if bw <= 1 or bh <= 1:      # broken / zero-area box
+                dropped_boxes += 1
                 continue
 
             xc = (x0 + bw / 2) / W
@@ -166,19 +181,26 @@ def main():
             class_boxes[cname] += 1
 
         if not lines:
-            n["elendi_gecerli_kutu_yok"] += 1
+            n["dropped_no_valid_box"] += 1
             continue
 
-        n["kutu_atildi"] += atilan_kutu
-        n["kutu_kirpildi"] += kirpilan_kutu
+        n["boxes_dropped"] += dropped_boxes
+        n["boxes_clipped"] += clipped_boxes
 
-        # --- Yazim ---
+        # --- Writing ---
         stem = img_path.stem
         (out / "labels" / f"{stem}.txt").write_text("\n".join(lines) + "\n",
                                                    encoding="utf-8")
 
         dst_img = out / "images" / img_path.name
-        if not dst_img.exists():
+        # Decision 3.44: exists() FOLLOWS the symlink. If the source AGAR folder
+        # has been moved the link breaks, exists() returns False, the code tries
+        # to create the symlink again and blows up with FileExistsError. The
+        # is_symlink() check catches the broken link too.
+        if dst_img.is_symlink() and not dst_img.exists():
+            print(f"  ! refreshing broken symlink: {dst_img.name}")
+            dst_img.unlink()
+        if not dst_img.is_symlink() and not dst_img.exists():
             if args.copy:
                 shutil.copy2(img_path, dst_img)
             else:
@@ -198,11 +220,11 @@ def main():
             "n_classes": len(per_class),
             **{f"n_{c}": per_class.get(c, 0) for c in CLASS_ORDER},
         })
-        n["tutuldu"] += 1
+        n["kept"] += 1
 
     if not rows:
-        sys.exit("HATA: filtrelerden gecen hic goruntu kalmadi. "
-                 "--background degerini kontrol et.")
+        sys.exit("ERROR: no image made it through the filters. "
+                 "Check the --background value.")
 
     # --- manifest.csv ---
     manifest = out / "manifest.csv"
@@ -211,34 +233,36 @@ def main():
         wcsv.writeheader()
         wcsv.writerows(rows)
 
-    # --- sinif isimleri dosyasi (YOLO icin) ---
+    # --- class names file (for YOLO) ---
     (out / "classes.txt").write_text("\n".join(CLASS_ORDER) + "\n", encoding="utf-8")
 
-    # --- OZET ---
+    # --- SUMMARY ---
     print("\n" + "=" * 58)
-    print("DONUSUM OZETI")
+    print("CONVERSION SUMMARY")
     print("=" * 58)
-    print(f"  taranan JSON            : {n['json_toplam']}")
-    print(f"  elendi / alt kume       : {n['elendi_alt_kume']}")
-    print(f"  elendi / countable degil: {n['elendi_countable_degil']}")
-    print(f"  elendi / artefakt sinifi: {n['elendi_artefakt']}   <- makalede raporlanacak")
-    print(f"  elendi / bilinmeyen sinif: {n['elendi_bilinmeyen_sinif']}")
-    print(f"  elendi / goruntu yok    : {n['elendi_goruntu_yok']}")
-    print(f"  elendi / gecerli kutu yok: {n['elendi_gecerli_kutu_yok']}")
-    print(f"  TUTULAN GORUNTU         : {n['tutuldu']}")
-    print(f"  toplam kutu             : {sum(class_boxes.values())}")
-    print(f"  kirpilan kutu           : {n['kutu_kirpildi']}")
-    print(f"  atilan kutu (bozuk)     : {n['kutu_atildi']}")
-    print("\n  sinif basina kutu:")
+    print(f"  scanned JSON             : {n['json_total']}")
+    print(f"  dropped / subset         : {n['dropped_subset']}")
+    print(f"  dropped / not countable  : {n['dropped_not_countable']}"
+          f"   (empty {n['dropped_empty']} + uncountable {n['dropped_uncountable']}"
+          f" + unknown {n['dropped_unlabelled_unknown']})   <- to be reported SEPARATELY in the paper")
+    print(f"  dropped / artifact class : {n['dropped_artifact']}   <- to be reported in the paper")
+    print(f"  dropped / unknown class  : {n['dropped_unknown_class']}")
+    print(f"  dropped / image missing  : {n['dropped_no_image']}")
+    print(f"  dropped / no valid box   : {n['dropped_no_valid_box']}")
+    print(f"  KEPT IMAGES              : {n['kept']}")
+    print(f"  total boxes              : {sum(class_boxes.values())}")
+    print(f"  clipped boxes            : {n['boxes_clipped']}")
+    print(f"  dropped boxes (broken)   : {n['boxes_dropped']}")
+    print("\n  boxes per class:")
     for c in CLASS_ORDER:
         print(f"    {CLASS_TO_ID[c]}  {c:<16} {class_boxes.get(c, 0)}")
     if unknown_classes:
-        print("\n  ! beklenmeyen sinif isimleri (kontrol et):")
+        print("\n  ! unexpected class names (check them):")
         for k, v in unknown_classes.most_common():
             print(f"    {k}: {v}")
     print(f"\n  manifest -> {manifest}")
     print("=" * 58)
-    print("\nSIRADAKI ADIM: python check_labels.py --data",
+    print("\nNEXT STEP: python check_labels.py --data",
           out, "--n 30\n")
 
 

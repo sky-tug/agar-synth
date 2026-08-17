@@ -44,32 +44,43 @@ from pathlib import Path
 # Eski genis plan asagida --kollar ile hala secilebilir.
 # ---------------------------------------------------------------------------
 
+# (ad, toplam egitim kumesi payi, SENTETIK pay)
+# Sentetik pay ADDAN TURETILMIYOR -- 17 Agu 2026'da ablasyon kollarinin
+# uretim maliyeti bu yuzden hic sayilmiyordu (adlarinda "+S" yok ama ucu de
+# bastan yeni sentetik kume gerektiriyor). Artik acikca yaziliyor.
 ANA_GRID = [
-    ("G100",   1.00), ("G50",  0.50), ("G50+S", 1.00), ("G25", 0.25),
-    ("G25+S",  1.00), ("G10",  0.10), ("G10+S", 1.00), ("S100", 1.00),
+    ("G100",  1.00, 0.00), ("G50",   0.50, 0.00),
+    ("G50+S", 1.00, 0.50), ("G25",   0.25, 0.00),
+    ("G25+S", 1.00, 0.75), ("G10",   0.10, 0.00),
+    ("G10+S", 1.00, 0.90), ("S100",  1.00, 1.00),
 ]
 
 # Kisilmis: yalnizca G25 seviyesinde. Difuzyon vs klasik sorusunun cevabi
 # icin ikame egrisinin orta noktasi yeterli.
-KLASIK = [("B_G25", 0.25), ("C_G25", 0.25)]
+KLASIK = [("B_G25", 0.25, 0.00), ("C_G25", 0.25, 0.00)]
 KLASIK_GENIS = [
-    ("B_G50", 0.50), ("B_G25", 0.25), ("B_G10", 0.10),
-    ("C_G50", 0.50), ("C_G25", 0.25), ("C_G10", 0.10),
+    ("B_G50", 0.50, 0.00), ("B_G25", 0.25, 0.00), ("B_G10", 0.10, 0.00),
+    ("C_G50", 0.50, 0.00), ("C_G25", 0.25, 0.00), ("C_G10", 0.10, 0.00),
 ]
 
 # Sentetik miktar taramasi: G25 tabani (0.25) + sentetik.
 # 1x = gercegi tam veriye tamamlayan miktar (0.75); zaten ana gridde G25+S var.
-MIKTAR = [("G25+S_0.5x", 0.25 + 0.375), ("G25+S_2x", 0.25 + 1.50)]
+MIKTAR = [("G25+S_0.5x", 0.25 + 0.375, 0.375), ("G25+S_2x", 0.25 + 1.50, 1.50)]
 MIKTAR_GENIS = [
-    ("G25+S_0.5x", 0.25 + 0.375),
-    ("G25+S_2x",   0.25 + 1.50),
-    ("G25+S_4x",   0.25 + 3.00),
+    ("G25+S_0.5x", 0.25 + 0.375, 0.375),
+    ("G25+S_2x",   0.25 + 1.50,  1.50),
+    ("G25+S_4x",   0.25 + 3.00,  3.00),
 ]
 
 # Hoca: "Uc farkli senaryo secip kullanabilirsin. Maske sabit alinabilir."
-ABLASYON = [("A1_LoRAsiz", 1.00), ("A2_arka_plan", 1.00), ("A3_rastgele_yerlesim", 1.00)]
+# 🔴 Ucu de G25 tabaninda ve ucu de AYRI bir sentetik kume gerektiriyor
+# (A1 uyarlanmamis modelle, A2 gercek arka plan olmadan, A3 naif yerlesimle).
+# Ayni goruntuler tekrar kullanilamaz -- ablasyonun tum anlami uretimin farkli
+# olmasi. Karar 3.18 (A3 yeniden tanimlandi) de bunu gerektiriyor.
+ABLASYON = [("A1_LoRAsiz", 1.00, 0.75), ("A2_arka_plan", 1.00, 0.75),
+            ("A3_naif_yerlesim", 1.00, 0.75)]
 
-IKINCI_DETEKTOR = [("YOLO11_G25", 0.25), ("YOLO11_G25+S", 1.00)]
+IKINCI_DETEKTOR = [("YOLO11_G25", 0.25, 0.00), ("YOLO11_G25+S", 1.00, 0.75)]
 
 KOLLAR = {
     "ana_grid":        (ANA_GRID, 5, "Faz 6"),
@@ -125,7 +136,10 @@ def main():
     ap.add_argument("--uretim-s-goruntu", type=float, default=0.0,
                     help="bir sentetik goruntunun inpainting suresi (s)")
     ap.add_argument("--lora-saat", type=float, default=0.0,
-                    help="seviye basina bir LoRA egitimi (saat). 3 LoRA kosacak.")
+                    help="seviye basina bir LoRA egitimi (saat)")
+    ap.add_argument("--lora-sayisi", type=int, default=4,
+                    help="kac ayri LoRA egitilecek. Karar 3.2: seviye basina ayri "
+                         "LoRA -> lora_10, lora_25, lora_50, lora_100 = 4")
     ap.add_argument("--sentetik-seed-basina", action="store_true",
                     help="her seed icin AYRI sentetik kume uret. Istatistiksel "
                          "olarak daha temiz (uretim rastgeleligi de varyansa "
@@ -181,7 +195,7 @@ def main():
         if kol not in KOLLAR:
             sys.exit(f"HATA: bilinmeyen kol '{kol}'. Secenekler: {list(KOLLAR)}")
         konfigler, seed, faz = KOLLAR[kol]
-        pay = sum(f for _, f in konfigler)
+        pay = sum(f for _, f, _ in konfigler)
         kosu = len(konfigler) * seed
         saat = pay * seed * tam_kosu_s / 3600
         toplam_saat += saat
@@ -202,23 +216,11 @@ def main():
     # ---------------- uretim maliyeti (Faz 3) ----------------
     uretim_saat = 0.0
     if args.uretim_s_goruntu or args.lora_saat:
-        # Bir konfigurasyonun sentetik ihtiyaci = toplam egitim kumesi - gercek pay.
-        # Gercek pay konfigurasyon adindaki G<sayi>'dan okunur; "+S" yoksa 0 sentetik.
-        import re
-
-        def sentetik_ihtiyaci(ad, toplam):
-            if "+S" not in ad and not ad.startswith("S100"):
-                return 0.0
-            if ad.startswith("S100"):
-                return toplam                      # tamami sentetik
-            m = re.search(r"G(\d+)", ad)
-            gercek = int(m.group(1)) / 100 if m else 0.0
-            return max(0.0, toplam - gercek)
-
+        # Sentetik pay artik kol tanimindan okunuyor, addan degil.
         sentetik_pay = 0.0
         for kol in secili:
             konfigler, _, _ = KOLLAR[kol]
-            sentetik_pay += sum(sentetik_ihtiyaci(a, f) for a, f in konfigler)
+            sentetik_pay += sum(sp for _, _, sp in konfigler)
 
         # Sentetik kume seed'ler arasinda paylasilirsa bir kez uretilir.
         # Seed basina ayri uretmek istatistiksel olarak daha temiz (uretim
@@ -228,10 +230,12 @@ def main():
             carpan = max(sd for _, sd, _ in (KOLLAR[k] for k in secili))
 
         n_sentetik = int(round(sentetik_pay * n_tam)) * carpan
-        uretim_saat = n_sentetik * args.uretim_s_goruntu / 3600 + 3 * args.lora_saat
+        uretim_saat = (n_sentetik * args.uretim_s_goruntu / 3600
+                       + args.lora_sayisi * args.lora_saat)
         print()
         print(f"uretim (Faz 3)       : {n_sentetik} sentetik goruntu "
-              f"x {args.uretim_s_goruntu} s  +  3 LoRA x {args.lora_saat} sa"
+              f"x {args.uretim_s_goruntu} s  +  {args.lora_sayisi} LoRA "
+              f"x {args.lora_saat} sa"
               + (f"   [seed basina ayri uretim, x{carpan}]" if carpan > 1
                  else "   [tek sentetik kume, seed'ler paylasiyor]"))
         print(f"                     = {uretim_saat:.1f} GPU-saat")
@@ -280,18 +284,25 @@ def main():
         print("\n" + "=" * 70)
         print("SENARYOLAR")
         print("=" * 70)
+        # DIKKAT: epoch ve imgsz yalnizca EGITIM maliyetini etkiler.
+        # Uretim (inpainting) ve XAI cikarimi bunlardan bagimsiz -- sabit kalir.
+        sabit = uretim_saat + xai_saat
+        yan = 0.0
+        if "klasik" in secili:
+            yan += sum(f for _, f, _ in KLASIK)
+        if "miktar_taramasi" in secili:
+            yan += sum(f for _, f, _ in MIKTAR)
         senaryolar = [
             ("tam plan (yukaridaki)", genel),
             ("ana grid seed 5->3", genel - (
-                sum(f for _, f in ANA_GRID) * 2 * tam_kosu_s / 3600)
+                sum(f for _, f, _ in ANA_GRID) * 2 * tam_kosu_s / 3600)
                 if "ana_grid" in secili else genel),
-            ("yan kollar seed 3->2", genel - (
-                (sum(f for _, f in KLASIK) + sum(f for _, f in MIKTAR))
-                * 1 * tam_kosu_s / 3600)),
-            ("epoch 150->100", genel * 100 / args.epochs),
-            ("imgsz 1280->1024 (! kucuk koloni riski)", genel * (1024 / imgsz) ** 2),
+            ("yan kollar seed 3->2", genel - yan * 1 * tam_kosu_s / 3600),
+            ("epoch 150->100", toplam_saat * 100 / args.epochs + sabit),
+            ("imgsz 1280->1024 (! kucuk koloni riski)",
+             toplam_saat * (1024 / imgsz) ** 2 + sabit),
             ("imgsz 1280->640  (!! C.albicans 8.6 px, onerilmez)",
-             genel * (640 / imgsz) ** 2),
+             toplam_saat * (640 / imgsz) ** 2 + sabit),
         ]
         for ad, s in senaryolar:
             isaret = ""

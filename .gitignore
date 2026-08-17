@@ -1,6 +1,10 @@
 # --- veri ve ciktilar (buyuk, yeniden uretilebilir) ---
 data/
 runs/
+# NOT: runs/ disarida ama ICINDEKI SONUCLAR degil.
+# run_metrics.json ve eval*/summary.json birkac KB ve YENIDEN URETILEMEZ (500+ GPU-saat).
+# `python scripts/collect.py` onlari results/ altina topluyor; results/ git'e GIRIYOR.
+# Kosulardan sonra collect.py'yi calistirmayi unutma (karar 3.33).
 wandb/
 *.pt
 *.zip
