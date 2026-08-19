@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mask as M            # noqa: E402
 import layout as L          # noqa: E402
 import tiles as T           # noqa: E402
+import species_check as S   # noqa: E402
 
 PASSED, FAILED = [], []
 
@@ -367,6 +368,99 @@ def test_tiling():
           np.allclose(w, w[::-1, :]) and np.allclose(w, w[:, ::-1]))
 
 
+def test_species_check():
+    """Decision 3.68 -- the class-fidelity measurement. These checks matter
+    because the statistic it reports decides whether the multi-class arms of the
+    paper mean anything, and a measurement that is wrong in a *plausible* way is
+    the most expensive kind of bug in this repository."""
+    print("\n18) species_check -- class fidelity measurement")
+
+    import cv2
+
+    def plate(spec, W=900, H=900, bg=90):
+        """Build a plate with known colonies. spec = [(cls, cx, cy, r, bgr, noise)]"""
+        im = np.full((H, W, 3), bg, np.uint8)
+        lines = []
+        for c, cx, cy, r, bgr, noise in spec:
+            cv2.circle(im, (cx, cy), r, bgr, -1)
+            if noise:
+                sub = im[cy - r:cy + r, cx - r:cx + r].astype(np.int16)
+                rr = np.random.default_rng(cx * 7 + cy).integers(-noise, noise + 1,
+                                                                 sub.shape)
+                im[cy - r:cy + r, cx - r:cx + r] = np.clip(sub + rr, 0, 255).astype(np.uint8)
+            lines.append(f"{c} {cx/W:.6f} {cy/H:.6f} {2*r/W:.6f} {2*r/H:.6f}")
+        return im, "\n".join(lines)
+
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / "images").mkdir(); (td / "labels").mkdir()
+        # class 0 = yellow (high R-B), class 1 = grey (R-B ~ 0)
+        spec = []
+        for i in range(6):
+            for j in range(6):
+                cx, cy = 80 + i * 145, 80 + j * 145
+                if j < 3:
+                    spec.append((0, cx, cy, 40, (40, 170, 200), 0))   # B,G,R -> R-B=160
+                else:
+                    spec.append((1, cx, cy, 40, (150, 150, 150), 0))  # R-B = 0
+        im, lab = plate(spec)   # 36 colonies, 18 per class (>= MIN_N)
+        cv2.imwrite(str(td / "images" / "p0.jpg"), im,
+                    [cv2.IMWRITE_JPEG_QUALITY, 100])
+        (td / "labels" / "p0.txt").write_text(lab)
+        counters = {"missing_image": 0, "missing_label": 0,
+                    "clipped": 0, "too_small": 0}
+        rows = S.plate_stats(td / "images" / "p0.jpg", td / "labels" / "p0.txt",
+                             ["yellowsp", "greysp"], counters)
+        check("every labelled colony is measured", len(rows) == 36,
+              f"{len(rows)}/36")
+        med = S.medians(rows)
+        yel = med.get("yellowsp", {}).get("yellowness", 0)
+        gre = med.get("greysp", {}).get("yellowness", 0)
+        check("yellowness recovers the planted colour difference",
+              yel > 140 and abs(gre) < 12, f"yellow={yel:.0f} grey={gre:.0f}")
+        check("contrast is positive for a colony brighter than the medium",
+              med["greysp"]["contrast"] > 40,
+              f"{med['greysp']['contrast']:.1f}")
+
+    # A statistic that is identical on both sides must give ordering 1.0, and a
+    # reversed one must give -1.0. Without this, "the class channel works" could
+    # be printed by an implementation that always returns +1.
+    a = {"x": {"yellowness": 1, "contrast": 1, "texture": 1},
+         "y": {"yellowness": 2, "contrast": 2, "texture": 2},
+         "z": {"yellowness": 3, "contrast": 3, "texture": 3}}
+    rev = {"x": {"yellowness": 3, "contrast": 3, "texture": 3},
+           "y": {"yellowness": 2, "contrast": 2, "texture": 2},
+           "z": {"yellowness": 1, "contrast": 1, "texture": 1}}
+    check("ordering = +1 when the ranking is identical",
+          abs(S.ordering(a, a)["yellowness"] - 1.0) < 1e-9)
+    check("ordering = -1 when the ranking is reversed",
+          abs(S.ordering(a, rev)["yellowness"] + 1.0) < 1e-9)
+
+    # Separability must COLLAPSE when the classes are made identical. This is the
+    # verdict that caught the texture artefact; if it could not distinguish
+    # "separated" from "collapsed" it would have reported a false pass.
+    rng = np.random.default_rng(3)
+    def cloud(cls, centre, n=40):
+        return [{"cls": cls, "plate": f"p{i % 5}",
+                 "yellowness": centre[0] + rng.normal(0, 1),
+                 "contrast": centre[1] + rng.normal(0, 1),
+                 "texture": centre[2] + rng.normal(0, 1)} for i in range(n)]
+    far = cloud("a", (0, 0, 0)) + cloud("b", (20, 20, 20))
+    near = cloud("a", (0, 0, 0)) + cloud("b", (0, 0, 0))
+    sf = S.separability(far, ["a", "b"])
+    sn = S.separability(near, ["a", "b"])
+    check("separability is large for well-separated classes", sf > 3, f"{sf:.2f}")
+    check("separability collapses for identical classes", sn < 1.0, f"{sn:.2f}")
+    check("separability ranks separated above collapsed", sf > 5 * sn,
+          f"{sf:.2f} vs {sn:.2f}")
+
+    # A class below MIN_N must be ABSENT from the medians, not silently averaged
+    # in with a meaningless value (design principle 2).
+    thin = cloud("a", (0, 0, 0), n=S.MIN_N - 1)
+    check("a class below MIN_N is dropped, not reported",
+          "a" not in S.medians(thin))
+
+
 def main():
     print("=" * 62)
     print("GENERATION PIPELINE SANITY TEST  (layout.py + mask.py)")
@@ -375,7 +469,7 @@ def main():
               test_gamma_extremes, test_gamma_monotone, test_hard_limit, test_bounds,
               test_no_silent_drop, test_deterministic, test_naive_ablation,
               test_level_lock, test_mask_area, test_mask_plate_clipping,
-              test_mask_erase, test_tiling):
+              test_mask_erase, test_tiling, test_species_check):
         f()
     print("\n" + "=" * 62)
     print(f"PASSED: {len(PASSED)}   FAILED: {len(FAILED)}")

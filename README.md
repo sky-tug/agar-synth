@@ -81,7 +81,11 @@ src/eval/test_metrics.py     36 sanity checks (cross-validated vs pycocotools)
 
 src/generate/layout.py       where/what/how-big  -> synthetic coordinates
 src/generate/mask.py         coordinates -> inpainting mask + background
-src/generate/test_generate.py 36 sanity checks
+src/generate/tiles.py        native-resolution tiling; no colony may be split
+src/generate/adapt.py        LoRA adaptation of the inpainting model
+src/generate/inpaint.py      mask + background -> synthetic plate (run / bench)
+src/generate/species_check.py does a synthetic colony look like its label says?
+src/generate/test_generate.py 55 sanity checks
 src/generate/exploration/    one-shot analyses behind the layout model
 
 scripts/train.py             training wrapper (logs time, VRAM, git commit)
@@ -165,6 +169,8 @@ A rule written in prose gets forgotten. Here they raise `SystemExit`:
 | synthetic layout cannot be generated without an explicit data level | `layout.py` |
 | the background pool level must match the plan level | `mask.py` |
 | splits must be verified nested and leak-free before use | `make_splits.py` |
+| a LoRA that did not actually load stops generation instead of warning | `inpaint.py` |
+| class fidelity may not be compared against a different data level | `species_check.py` |
 | `null` in the augmentation config is rejected — it would silently become an Ultralytics default | `train.py` |
 
 **2 — A silent failure is worse than a loud one.**
@@ -191,8 +197,14 @@ because ten demo plates pick a distribution *family*, not its parameters.
 ## Status
 
 Data pipeline and measurement infrastructure are complete and tested.
-The layout and mask stages of the generation pipeline are complete and tested.
-LoRA adaptation and inpainting are pending full-dataset access and GPU allocation.
+The generation pipeline is complete end to end — layout, mask, LoRA adaptation,
+tiled native-resolution inpainting — and has produced its first synthetic plates
+on the 10-plate public sample. Zero label error and the absence of unlabelled
+objects are verified on generated output; generation cost is measured, not
+estimated. Class fidelity is measured and is the open problem: the class channel
+works (rank correlation 1.00 with the real ordering) but the separation between
+species retains only 27% of the real separation on the demo subset. Waiting on
+full-dataset access and a GPU allocation.
 
 Estimated cost of the full grid: **609–857 GPU-hours** (61 training runs +
 ~58,000 synthetic images + 4 LoRA adaptations). See `scripts/budget.py`.

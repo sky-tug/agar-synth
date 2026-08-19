@@ -521,11 +521,61 @@ alarmdi, her zaman olmayabilir.
 Uretim artik toplamin %30'u degil, ~%30'undan azi — ve **olculmus** bir sayi.
 Kalan belirsizligin tamami egitim tarafinda; o da ilk G100 kosusuyla kapanacak.
 
+### 🟡 Olculen: tur gorunum sadakati (19 Agustos)
+
+Olcum artik elle degil, repoda bir arac: `src/generate/species_check.py`
+(karar 3.68). Koloni kutusunun **ic %35'lik diski** olculuyor; kenar disarida
+kaliyor. "Sarilik" = R-B kanal farki, "kontrast" = koloni ici gri ile cevre
+besiyerinin medyan grisi arasindaki fark, "doku" = Laplace standart sapmasi
+(ksize=3).
+
+`--level 100`, gercek: 10 plak / 387 koloni, sentetik: 4 plak / 155 koloni.
+
+| tur | n (gercek/sentetik) | cap px | sarilik | kontrast | doku |
+|---|---|---|---|---|---|
+| B.subtilis | 53 / 86 | 151/150 | 34,3 → 35,2 | 35,1 → 25,9 | 9,2 → **41,3** |
+| P.aeruginosa | 41 / 50 | 155/154 | 36,9 → 37,1 | 11,5 → 21,8 | 5,2 → **15,9** |
+| S.aureus | 152 / 15 | 29/29 | 89,9 → **58,1** | 63,2 → 38,7 | 11,3 → **87,8** |
+
+`E.coli` sentetik tarafta 4 koloni (< MIN_N=15) oldugu icin karsilastirmaya
+girmedi, `C.albicans` uretilen 4 plagin hicbirinde yok — ikisi de **raporlaniyor**,
+sessizce dusurulmuyor.
+
+**1) Siralama testi: kanal CALISIYOR.** Sinifları her uc istatistige gore
+siralayip gercek ile sentetigi karsilastirinca (Spearman) uc olcutte de
+**+1,00**. Yani model turu ayirt ediyor; "metin kodlayici donuk, sinyal
+gecmiyor" endisesi **curudu**. Bu, kullanicinin hipotezini (veri azligi)
+destekliyor.
+
+**2) Ayrilabilirlik testi: buyukluk cokmus.** En yakin iki sinifin merkezleri
+arasindaki mesafe, sinif ici yayilim biriminde:
+
+| | gercek | sentetik | korunan |
+|---|---|---|---|
+| uc eksen (sarilik+kontrast+doku) | 0,91 (CI90 0,71-2,49) | 0,98 (CI90 0,85-1,62) | %107 |
+| **doku ekseni cikarilinca** | **1,65** | **0,44** | **%27** |
+
+Bu satir kritik ve tek basina bu aracin varlik sebebi: uc eksenle bakinca
+sentetik veri gercek kadar ayrilabilir gorunuyor (%107) — ama bu ayrilma
+**yanlis eksenden** geliyor. Doku, modelin yanlis yaptigi istatistik (karar
+3.67) ve siniflara gore farkli sekilde yanlis yapiyor, dolayisiyla
+ayrilabilirligi **sahte olarak sisiriyor**. Gercegin kullandigi eksenlerde
+(renk + kontrast) sentetik veri gercek ayrimin ancak **%27**'sini koruyor.
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.68 | **`species_check.py`: sinif sadakati kalici bir olcum haline getirildi.** Iki hukum veriyor — siralama (kanal canli mi?) ve ayrilabilirlik (siniflar ayirt edilebilir mi?), ikincisi **doku ekseni dahil ve haric**. Plak duzeyinde onyukleme (bootstrap) araligi veriyor. `--level` zorunlu ve gercek liste o seviyeye ait olmak zorunda (karar 3.2/3.7). `test_generate.py` 9 yeni kontrolle bunu sinar (toplam 55). | Simdiye kadarki her kapi "gercekci mi" diye soruyordu; hicbiri "**dogru mu**" diye sormuyordu. Jenerator dogru gorunumlu ama **yanlis turde** bir koloni cizerse, plak butun mevcut kapilardan gecer, sinif basina AP hicbir sey olcmez ve S100 kolu "sentetik veri ikame etmiyor" der — oysa gercek bulgu "jenerator sinifi yok saydi"dir. Bu iki iddia farklidir ve karistirilamaz. Ayrica olcumun kendisi de yanilabilir: ilk elle hesapta Laplace cekirdegi yanlis (`ksize` yerine `dst` konumuna 3 verilmis) idi ve tum doku sayilari ~3 kat dusuk cikti; bu tablodaki degerler duzeltilmis olanlar. Bir sayiyi arac haline getirmek, onu tekrar edilebilir ve **hatasi bulunabilir** kilar. |
+
+**Faz 4 icin acik hedef:** doku oranini 2'nin altina indirmek ve doku-siz
+ayrilabilirligi %27'den yukari cikarmak. Tam veride tur basina ornek sayisi
+~100 kat artacak; olcum ayni araclarla tekrarlanacak ve **ilerleme sayiyla**
+gosterilecek.
+
 ### Yeni acik madde
 
 | Konu | Durum |
 |---|---|
-| Tur gorunum sadakati | Bu plak tamamen `P.aeruginosa` (karar 3.16: plak basina tek baskin tur) ve uretilen koloniler tutarli sekilde ayni gorunuyor — yani model tur bilgisini istemden aliyor gibi. Ama gorunumun **dogru** tur olup olmadigi olculmedi. Faz 4'te sinif basina AP ve bir tur siniflandiricisiyla bakilacak: sentetik `P.aeruginosa` gercek `P.aeruginosa` gibi mi, yoksa tum turler ayni "koloni" gorunumune mi cokuyor? Ikincisi olursa cok-sinifli kollar bozulur. |
+| 🟡 **Tur gorunum sadakati — kanal CALISIYOR, ama zayif** | Olculdu (asagidaki tablo). Tur kosullamasi olu degil: sarilik siralamasi gercek veriyle **birebir ayni**, ve `P.aeruginosa` her ikisinde de en dusuk kontrastli tur. Ama buyuklukler sikismis (`S.aureus` sariligi 90 yerine 58). Yani model turu ayirt ediyor, yeterince kuvvetli ayirt etmiyor — bu tam olarak "veri az" tablosu. Tam veride tur basina ornek ~100 kat artacak. Faz 4'te ayni olcum tekrarlanacak; hala sikisiksa metin kodlayici da egitilecek. |
 
 
 ---
