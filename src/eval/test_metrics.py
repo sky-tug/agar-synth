@@ -200,7 +200,7 @@ def test_conf_threshold():
 def test_read_yolo_txt():
     """
     Decision 3.38: the file reader was NOT being tested at all.
-    All the other 33 checks build ImageAnno directly with PIXEL boxes, i.e. they
+    All the other 27 checks build ImageAnno directly with PIXEL boxes, i.e. they
     skip the only place where the normalized -> pixel conversion lives. If W and
     H were swapped there, or the conf column shifted, no test would have caught
     it. W != H was chosen deliberately -- on a square image a W/H swap would be

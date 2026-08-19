@@ -521,6 +521,29 @@ alarmdi, her zaman olmayabilir.
 Uretim artik toplamin %30'u degil, ~%30'undan azi — ve **olculmus** bir sayi.
 Kalan belirsizligin tamami egitim tarafinda; o da ilk G100 kosusuyla kapanacak.
 
+### ✅ Olculen: JPEG kestirmesi riski dusuk (19 Agustos)
+
+Acik maddelerden biri suydu: gercek AGAR goruntusu **bir kez** JPEG sikistirilmis,
+sentetik goruntu ise coz-uret-yeniden sikistir zincirinden geciyor. Detektor
+kolonileri degil **sikistirma izini** ogrenebilir; o zaman S100 kolu gercek test
+setinde coker ve bu "sentetik veri ikame etmiyor" diye okunur.
+
+Iki sey olculdu:
+
+| | nicemleme tablosu (toplam) | blokluk orani (duz besiyeri) |
+|---|---|---|
+| gercek AGAR (14618) | 369 | 0,927 |
+| ayni plagin sentetik ciktidaki hali | 369 | 0,930 |
+| baska bir gercek plak (14512) | 369 | 0,969 |
+
+Nicemleme tablosu **ayni** (`cv2.imwrite` varsayilan kalitesi AGAR'inkiyle
+ortusuyor). Kalan cift-sikistirma izi ise blokluk oraninda 0,003'luk bir fark
+yaratiyor — **iki gercek plak arasindaki fark bunun 14 katı** (0,042). Yani iz,
+dogal plaklar arasi degiskenligin altinda kaliyor.
+
+Bu madde kapandi. Faz 4'te sifirdan olcmeye gerek yok; sadece uretim ayarlari
+degisirse (ornegin PNG'ye gecilirse) tekrar bakilacak.
+
 ### 🟡 Olculen: tur gorunum sadakati (19 Agustos)
 
 Olcum artik elle degil, repoda bir arac: `src/generate/species_check.py`
@@ -678,7 +701,7 @@ varsayimlariyla uc senaryo.
 
 | Konu | Durum |
 |---|---|
-| 🔴 **Silme bolgesinde hayalet koloni** | Sentetik diskle ortulmeyen silme bolgelerinde difuzyonun **duz besiyeri** uretmesi gerekiyor. Onun yerine oraya bir koloni uydurursa, goruntude **etiketsiz bir nesne** olusur — tam da 3.25'in onlemeye calistigi sey, bu sefer difuzyonun kendi eliyle. Karar 3.24 etiketin **fazla buyuk** olmamasini garantiliyor; bunun aynasi olan "etiketsiz nesne yok" garantisi **yok** ve kodla saglanamaz. Faz 4 pilotunda olculecek: uretilen goruntude silme bolgelerine bir detektor koyup kac yanlis pozitif ciktigina bakilacak. Cikarsa cozum: silme bolgelerini sentetik kolonilerle kapatmayi zorunlu kilmak, veya negatif istem (negative prompt). |
+| ✅ **Silme bolgesinde hayalet koloni — KAPANDI (18 Agustos, karar 3.65)** | Endise doğru cikti: difuzyonla silme yapildiginda 35 silme bolgesinin 23'u koloni olarak geri geldi (LoRA ile %66). Cozum silme gecisini klasik doldurmaya (`cv2.inpaint`) cevirmek oldu: 0/29, ve GPU maliyetinden -%39. Ayrintili olcum asagida, 18 Agustos bolumunde. Faz 4'te bir detektorle coklu plakta tekrar dogrulanacak. |
 | Clark–Evans %10 yuksek | Uretilen 1.13, gercek 1.03. gamma kisa menzilde itiyor ama gercek veri daha *heterojen*: bazi ciftler cok ic ice, bazilari cok uzak. Tek parametreli Strauss bunu tam yakalayamiyor olabilir. 10 plakta karar verilemez; tam veride bakilacak. Gerekirse iki menzilli (sert cekirdek + yumusak itme) modele gecilir. |
 | `lora_10`'un veri yeterliligi | ~800 goruntuluk alt kumede LoRA'nin ise yarar bir koloni gorunumu ogrenip ogrenemedigi olculmeli. Ogrenemezse G10+S kolu "sentetik veri yardim etmiyor" degil, "uretici model yetersiz veriyle uyarlanmis" sonucunu verir — ikisi farkli iddialar ve karistirilamaz. Pilotta (Faz 4) test edilecek. |
 | Arka plan havuzunun buyuklugu | `train_10` icinde yeterince bos/az koloni iceren plak var mi? Yoksa ayni arka plan defalarca kullanilacak → sentetik cesitlilik duser, FID/KID bunu yakalar. Olculecek. |

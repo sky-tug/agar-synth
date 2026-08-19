@@ -51,10 +51,10 @@ COLUMNS = [
     "gpu_name", "torch", "git_commit", "date_utc", "smoke_test",
 ]
 
-# evaluate.py is still mid-translation: a handful of summary.json keys have not
-# been renamed yet. The table columns are the English names; these aliases let
-# the old spellings still be picked up, so summaries written before and after
-# the rename both land in the same column.
+# Keys are copied from summary.json by EXACT name -- there is no alias table.
+# (An earlier comment here described one; it never existed in the code. If
+# evaluate.py ever renames a summary key, add the alias AND a test, or rows
+# written before the rename land in an empty column without a word of warning.)
 def _read_json(p: Path):
     try:
         return json.loads(p.read_text(encoding="utf-8"))
