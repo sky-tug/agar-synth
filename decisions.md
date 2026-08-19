@@ -275,6 +275,261 @@ duzeltilmeye degmez; tam veride bakilacak.
 
 ---
 
+## Faz 3 — difuzyon hatti (18 Agustos 2026)
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.51 | **Inpainting DOGAL COZUNURLUKTE ve PARCALI (tiled) yapilacak.** Plagi 512'ye kucultup uretmek yasak. Varsayilan tile 512, `--tile` ile degistirilebilir. | Difuzyon modeli sabit tuvalde calisir (SD 1.5 icin 512). Plagi 2048'den 512'ye kucultursek **C.albicans 27.5 px'ten 6.8 px'e** iner. Bu, `imgsz=1280` argumaninin (karar 2.8) daha sert hali: orada **detektor** 8.6 px'te zorlaniyordu, burada **uretici** 7 piksellik bir nesne sentezlemeye calisacak ve upscaler dokusunu uyduracak. Sonuctaki sey koloni olmaz; ikame egrisinin kucuk-sinif kollari — makalenin ana iddiasi — bir artefakti olcmus olur. |
+| 3.52 | **🔴 Bir koloni ASLA iki tile arasinda bolunemez.** `place_tiles()` bolen bir yerlesim uretirse `AssertionError` firlatiyor; `test_generate.py` bunu uretilen plaklarda dogruluyor. | Koloni tile sinirina denk gelirse iki yarisi **ayri geciste, farkli gurultuden** uretilir. Uyusmazlar: koloninin tam ortasindan bir dikis gecer ve detektor "ortasinda cizgi olan koloni" ogrenir. Etiket dogru kalir, goruntu bozuk olur — yani sessiz. |
+| 3.53 | **Uretim maliyet modeli degisti: `saniye/goruntu` DEGIL, `tile/goruntu × saniye/tile`.** `budget.py` `--tiles-per-image` ve `--sec-per-tile` aliyor; eski `--gen-sec-per-image` uyari basiyor. | Eski model 8 s/goruntu varsayiyordu, yani ~1 tile. Olculdu: 512'lik tile ile **16.3 tile/plak**, 768 ile 9.7. Koloniler plaga dagilmis oldugu icin (karar 3.18, Clark–Evans ~1.0) maskeye gore akilli yerlestirme tam kapsama izgarasindan pek tasarruf ettirmiyor (16.3'e karsi 20). Tiling'den kacis yok. |
+
+### 🔴 Butce yeniden hesaplandi — sampler artik bir butce karari
+
+58.200 sentetik goruntu × 16.3 tile = **0.95M inpainting gecisi.**
+
+| tile basina | uretim | GENEL TOPLAM |
+|---|---|---|
+| 1.5 s (SD1.5, ~20 adim) | 403 GPU-saat | **905 GPU-saat** |
+| 0.8 s (~10 adim) | 219 | 721 |
+| 0.4 s (LCM/Turbo, 4–8 adim) | 113 | 615 |
+
+17 Agustos tahmini uretim icin 137 saat diyordu. Gercek, adim sayisina gore
+**113 ile 403 arasinda** — yani denoising adim sayisi bir kalite ayrintisi degil,
+**projenin en buyuk tek butce kaldiraci**. Damitilmis bir sampler (LCM/Turbo)
+ile 20 adimli SD1.5 arasindaki fark ~290 GPU-saat.
+
+**Faz 4 pilotunda olculecek ilk sey bu:** tile basina gercek sure ve dusuk adimda
+kalite kaybi. Ikisi olculmeden BİDB'ye verilecek sayi tek bir aralik olamaz.
+
+🟡 **Tile boyutu ikinci kaldirac:** 768'e cikmak tile sayisini 16.3'ten 9.7'ye
+dusuruyor (%40 tasarruf) ama SD 1.5 512'de egitildi; 768 dagitim disi ve VRAM
+maliyeti kareyle artiyor. Pilotta iki boyut da denenecek.
+
+
+### `inpaint.py` yazildi (18 Agustos, ogleden sonra)
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.54 | **Silme bolgeleri icin negatif istem (negative prompt).** Ayrica `inpaint.py` uretimden sonra maske disini degistirmiyor — kompozit yalnizca maskenin izin verdigi yere yaziyor. | Karar 3.25 gercek kolonileri siliyor; oralar **duz besiyeri** olarak geri gelmeli. Model oraya bir koloni uydurursa goruntude **etiketsiz nesne** olusur — tam da silmenin onlemeye calistigi yanlis negatif, bu sefer ureticinin eliyle. Negatif istem zayif bir onlem, garanti degil; Faz 4'te kalan oran bir detektorle olculecek (acik madde). |
+| 3.55 | **`inpaint.py` her kosuda `gen_metrics.json` yaziyor**: tile/goruntu, s/tile (ort + p95), s/goruntu, tepe VRAM, model, adim sayisi. Ve gercek kosuda "58.200 goruntu bu ayarla kac GPU-saat" satirini basiyor. Bir de `bench` alt komutu (tile × adim taramasi). | Karar 3.53: uretim maliyeti iki kaldiraca bagli ve ikisi de ampirik. `budget.py`'ye **tahmin edilmis** bir `--sec-per-tile` verilmeyecek; gercek kosu varken olculmus deger kullanilacak. `bench` Faz 4'te GPU-saat rakami telaffuz edilmeden once kosulacak komut. |
+| 3.56 | **`--dry` modu**: difuzyon cagrisi yerine belirlenimci bir sahte boyayici. Tiling, istem uretimi, kompozit, maske kapisi, etiket kopyalama, zamanlama — hepsi gercek calisiyor. | GPU'suz makinede boru hattinin dogrulanabilmesi icin. Ve daha onemlisi: bir tesisat hatasi asla "uretim kalitesi sorunu" sanilmasin diye. Kuru mod ciktisi bilerek cirkin; kimse onu gercek ornek sanmasin. |
+
+**Kuru modda uctan uca dogrulandi** (8 plak, 131 tile, 280 koloni):
+
+| garanti | sonuc |
+|---|---|
+| maskenin DISI degismiyor | ort \|fark\| 0.11–0.27 (yalnizca JPEG), yapisal degisiklik yok |
+| etiket uretimden etkilenmiyor | 8/8 birebir ayni |
+| hicbir koloni bosta kalmiyor | 280/280 boyandi |
+| tile/goruntu | 16.38 — sabahki bagimsiz olcumle (16.3) tutuyor |
+
+### 🔴 Yeni acik madde: JPEG nesil sayisi uyusmuyor
+
+Yukaridaki dogrulama sirasinda cikti. Sikistirma gecmisi **gercek ve sentetik
+goruntuler arasinda ayni degil**:
+
+| goruntu | JPEG nesli |
+|---|---|
+| gercek AGAR | **1** (veri setinin kendisi) |
+| `mask.py` -> `backgrounds/*.jpg` | 2 (q96 ile yeniden kodlaniyor) |
+| `inpaint.py` -> `images/*.jpg` | **3** (q95) |
+
+Yani her sentetik goruntu, gercek olanlardan **iki nesil fazla** JPEG gormus.
+Olculen etki su an kucuk (ort |fark| 0.17, yuksek-frekans enerjisinde %+0.1)
+ama **yon sistematik**: detektor "sentetik = su sikistirma izi" kisayolunu
+ogrenebilir, ve o zaman ikame egrisi veri kalitesini degil sikistirma farkini
+olcmus olur. FID/KID de ayni sahte sinyali yakalar.
+
+Cozum yonu — Faz 4'te karara baglanacak:
+1. `mask.py` arka plani **yeniden kodlamasin**; `inpaint.py` orijinal AGAR
+   dosyasini okusun. Nesil 3 -> 2'ye iner.
+2. Ya da gercek goruntulere de ayni yeniden kodlama uygulansin (nesil esitlenir,
+   ama gercek veri gereksiz yere bozulur).
+3. Faz 4 olcumu: **yalnizca arka plan yamalarindan** gercek/sentetik ayirt
+   etmeye calisan bir siniflandirici. Basarili olursa kisayol var demektir.
+
+Bu, karar 3.12'deki tuzagin akrabasi: sentetik verinin **lehine** degil,
+**gecersizligine** calisan ve gozle gorunmeyen bir fark.
+
+
+### `adapt.py` yazildi ve gozle kontrol dort sey yakaladi (18 Agustos, aksam)
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.57 | **`adapt.py crops` egitim kumesini once cikarip RAPORLUYOR**, GPU'ya dokunmadan. Tur basina koloni sayisi basiliyor; bir tur hic yoksa kirmizi uyari. | Uyarlama kumesinde olmayan bir tur **uretilemez**. Dusuk seviyelerde gercek risk: `train_10`'dan C.albicans kaybolursa G10+S kolu veri miktarini degil sinif dengesizligini olcmus olur (karar 1.5'in ayni mantigi, bu sefer uretici tarafinda). Tek GPU-saniyesi harcanmadan gorulebilmeli. |
+| 3.58 | **Kirpmada tile'a atanan degil, kirpmaya DUSEN TUM koloniler maskelenir.** | Ilk surum yalnizca `t.colony_idx`'i maskeliyordu; komsu koloniler kirpmada **gorunur** kaliyordu. Gozle kontrol bunu aninda gosterdi. Ama uretimde `mask.py` arka plandaki butun gercek kolonileri **zaten silmis** oluyor (karar 3.25) — model hicbir gorunur koloni gormuyor. Yani egitim, modele cikarimda var olmayan bir ipucu (komsunun gorunumunu kopyala) ogretiyordu. |
+| 3.59 | **Egitim kumesinin %20'si BOS DELIK** (`--empty-ratio`): koloni icermeyen bir besiyeri yamasi maskelenir, hedef ayni duz besiyeridir, istem "no colonies". | Onceki kurguda kume yalnizca "delik -> koloni" ornegi iceriyordu; model bir deligin **her zaman** koloni oldugunu ogrenirdi. |
+| 3.60 | **🔴 Uretim IKI GECIS: once SILME (duz besiyeri), sonra SENTEZ (koloniler).** `mask.py build --split-masks` zorunlu hale geldi; birlesik maske kullanilirsa uyari basiliyor. | 3.59'u uygularken asil sorun ortaya cikti ve **temsil duzeyinde**: tek ikili maskeyle model bir deligin koloni mi bos mu olmasi gerektigini **bilemez** — ikisi de sadece delik. Hicbir negatif istem, iki durumu ayirt etmeyen bir girdiyi duzeltemez. Gecisi ikiye bolmek her soruyu tek anlamli yapiyor: silme gecisi `CLEAN_PROMPT` aliyor, sentez gecisi tur istemini. **Karar 3.54'teki "hayalet koloni" riski boylece bir onlem meselesi olmaktan cikip cozulmus oluyor.** |
+
+**Maliyet sonucu:** iki gecis tile sayisini 16.4'ten **27.8'e** cikardi (demo,
+havuz esigi 0.25). Silme gecisinin maliyeti arka planin ne kadar kirli oldugu ile
+dogru orantili — yani **karar 3.26'daki havuz esigi artik dogrudan bir butce
+parametresi**. Temiz havuz (esik 0.06) hem 3.27'deki sinif yanliligini artiriyor
+hem de uretimi ucuzlatiyor; ikisi arasindaki denge Faz 4'te olculecek.
+
+**Gozle kontrol notu:** 3.58, 3.59 ve 3.60'in ucu de kodu okuyarak degil,
+**egitim kirpmalarina bakarak** bulundu. `check_labels.py`'nin docstring'indeki
+cumle burada da gecerliydi: bu 10 dakika, ilerideki gunleri kurtardi.
+
+
+### Ilk LoRA egitimi kosuldu (18 Agustos, aksam)
+
+RTX 4060 Laptop, demo paketten 168 kirpma, SD 1.5 inpainting, rank 16.
+
+```
+trainable params: 3,188,736 || all params: 862,724,100 || trainable%: 0.3696
+1.05 s/adim x 1500 adim = 26 dakika
+```
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.61 | **Adim basina loss RAPORLANMAZ, yorumlanmaz.** Yerine (a) son `log_every` adimin kosan ortalamasi, (b) **SABIT kirpmalar uzerinde SABIT zaman adimlarinda** hesaplanan dogrulama loss'u basiliyor. Izlenecek sayi ikincisi. | Difuzyon egitiminde her adim rastgele bir zaman adimi orneklıyor: cok gurultulu bir adimda gurultuyu tahmin etmek kolay (loss dusuk), az gurultulude zor (yuksek). `batch=1` ile bu varyans egitim sinyalini tamamen gomuyor. Ilk kosu ardisik loglarda `0.0006, 0.0147, 0.0016, 0.0241` bastı — **hicbir sey ifade etmiyor**. Bir egri gibi okunursa "model ogrenmiyor" ya da "asiri ogreniyor" diye yanlis teshis konur. Sabit kirpma + sabit zaman adimi ile degisen tek sey model olur. |
+| 3.62 | **`--ckpt-every` (varsayilan 500): ara LoRA kayitlari.** Her kayitta dogrulama loss'u da olculuyor. | 168 kirpma icin 1500 adim bir **tahmin**. Az mi cok mu oldugu ancak uretip bakarak anlasilir; ara kayit olmadan her cevap icin bastan egitmek gerekir. Kayitla tek kosu "kac adim" sorusunu cevapliyor, uc kosu degil. |
+
+### 🟢 Olculen: LoRA egitimi tahminden ucuz
+
+| | varsayim | **olculen** |
+|---|---|---|
+| LoRA basina | 2.0 saat | **0.44 saat** (1.05 s/adim × 1500) |
+| 4 LoRA | 8.0 saat | **1.75 saat** |
+
+`budget.py --lora-hours 0.44 --lora-count 4`. Toplam icinde kucuk bir kalem
+(~6 saat tasarruf) ama artik **tahmin degil olcum** — ve tam veride kirpma
+sayisi artacagi icin adim sayisi da artabilir; oran korunur, mutlak deger degil.
+
+**Guncel toplam** (27.8 tile/goruntu, 0.8 s/tile, olculmus LoRA):
+egitim 502 + uretim 361 + XAI 0.3 = **~864 GPU-saat**. `sec-per-tile` hala tek
+buyuk bilinmeyen; `inpaint.py bench` onu kapatacak.
+
+### Ilk gercek uretim kosusu — 18 Agustos 2026, aksam
+
+Ilk plak uretildi. Iki sey ortaya cikti; ikisi de "calisti" diye gecistirilecek
+turden degil.
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.63 | **LoRA'nin yuklendigi KANITLANIR, varsayilmaz.** `attach_lora()` peft ile yukluyor, `merge_and_unload()` ile taban agirliklara katiyor, ve hedeflenen bir agirligi (`attn1.to_q.weight`) katma oncesi/sonrasi karsilastiriyor. Fark sifirsa program **duruyor**. | Ilk kosuda LoRA **hic yuklenmedi**. `adapt.py` peft formatinda (`base_model.model.*` on ekli) yaziyor, `pipe.load_lora_weights()` diffusers/kohya adlandirmasi (`unet.*`) bekliyor; eslesme bulamayinca `No LoRA keys associated to UNet2DConditionModel found` diye **uyari** basip taban modelle uretmeye devam etti. Yani ilk sentetik plak, agar plagi hic gormemis bir modelden cikti. Bu tam olarak 2. tasarim ilkesinin (sessiz hata) hedefi: 58.200 goruntuluk grid boyle uretilseydi sonuc "difuzyon bu is icin calismiyor" diye okunurdu — makalenin ana iddiasi, bir yukleme hatasi yuzunden yanlis cikardi. |
+| 3.64 | **Tile sayisi tahmin degil olcum: 31,0 tile/plak** (varsayim 16,3 idi; `tiles.py` bas yorumundaki tablo uretilmis yerlesimlerden geliyordu). Butce artik bu sayiyla kuruluyor. | Fark %90. 16,3 sayisi koloni boyut dagilimina cok duyarli; `layout_100` demo veriden `E.coli` 128 px, `P.aeruginosa` 155 px, `B.subtilis` 151 px medyanlarla cikti — bu boyutta koloniler tek bir 512'lik pencereye az sayida sigiyor, bolunmeme sarti (3.52) da pencere sayisini artiriyor. Ders 3. ilkenin tekrari: modelin kendi ic tablosu bile olculene kadar tahmindir. |
+
+### 🔴 Olculen: uretim maliyeti tahminden **cok** pahali
+
+| | onceki varsayim | **olculen (20 adim, 512 tile, fp16)** |
+|---|---|---|
+| tile/goruntu | 27,8 | **31,0** |
+| s/tile | 0,8 | **3,19** (p95 3,19) |
+| s/goruntu | 22 | **98,96** |
+| 58.200 goruntu | 361 GPU-saat | **1.597 GPU-saat** |
+
+Tepe VRAM 2,89 GB — kartin (8 GB) cok altinda, yani hizi sinirlayan sey bellek
+degil, denoising adim sayisi. Bu haliyle **uretim tek basina egitimin 3 katina**
+cikiyor ve toplam ~2.100 GPU-saat oluyor; BİDB'den istenebilecek bir sayi degil.
+
+Kapatilacak kaldiraclar, ucuzdan pahaliya:
+1. **Adim sayisi** — 20 → 8 veya 4 (LCM/Turbo damitilmis orneksleyici). Dogrusal: 4 adim ~320 saat.
+2. **Tile boyutu** — 768'de tile/plak ~9,7'ye duser ama tile basina sure artar; net kazanc **olculecek**, varsayilmayacak.
+3. **Tile'lari toplu (batch) isleme** — 2,89 GB tepe VRAM ile ayni anda 2-3 tile sigar.
+4. Son care: sentetik goruntu sayisini dusurmek — ama bu dogrudan makalenin sorusunu daraltir, once digerleri denenecek.
+
+`inpaint.py bench --tiles 512,768 --steps-list 4,8,20` bir sonraki adim.
+
+### 🟢 Faz 3 kapisi: koloniler gecti
+
+LoRA'li ilk plak uretildi ve **ikna edici**. Yerel cozunurlukte koloniler isinsal
+lifli dokuya, hale ve golgeye sahip; kutular kolonilere tam oturuyor (36 kutu,
+gozle sapma yok — karar 3.24'un sifir etiket hatasi garantisi goruntude de
+tutuyor). LoRA'siz ayni plak (kazara uretilen A1 ablasyon ornegi) neredeyse bos:
+soluk saydam diskler ve bir iki tuhaf nesne. Fark, LoRA'nin gerekliligini
+gorsel olarak da kanitliyor.
+
+### 🔴 Ama: hayalet koloniler olculdu, ve cok yuksek
+
+Ayni plakta arka planin **silinmesi gereken 35 gercek kolonisinden 23'u geri
+geldi** — sari-yesil, etiketsiz nesneler olarak. Bunlar detektor icin yanlis
+negatif; egitim verisinde "burada koloni yok" diye ogretilirler.
+
+| silme gecisi | koloni olarak geri gelen bolge |
+|---|---|
+| difuzyon + `lora_100` | **23 / 35 (%66)** |
+| difuzyon, taban model | 6 / 35 (%17) |
+| `cv2.inpaint` (Telea, r=7) | **0 / 35 (%0)** |
+| (referans: hic dokunulmamis gercek arka plan) | 34 / 35 |
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.65 | **Silme gecisi KLASIK yapilir (`cv2.inpaint`, Telea r=7), difuzyonla degil.** `--erase-method diffusion` karsilastirma tekrar uretilebilsin diye duruyor ama varsayilan degil. | Ustteki tablo. LoRA silme gecisini **daha kotu** yapiyor ve bu kacinilmaz: LoRA tam olarak "besiyerindeki deligi koloniye cevir" diye egitildi, gecis 1 ona tam bunu veriyor. Istemle (prompt) geri alinamaz — agirlik guncellemesi istemden gucludur. Klasik doldurma koloni **uyduramaz**, cunku uyduracak bir sey yok: cevredeki besiyerini ice dogru tasir, "duz besiyeri" zaten bunun tanimi. Ustelik bedava: o plakta silme izgarasi 31 tile'in 12'siydi, gecis tamamen GPU butcesinden cikiyor (**-%39**). Bedeli: delik cevresine gore buyukse klasik doldurma bulaniklastirir. Havuz esigi (erase_ratio ≤ 0.06, karar 3.26) delikleri kucuk tutuyor ama bu bir garanti degil, o yuzden en buyuk delik capi plak basina olculup raporlaniyor (`ERASE_WARN_PX = 120`). |
+
+**Butceye etkisi:** 31 → **19 tile/goruntu**. 58.200 goruntu 1.590 → **~975
+GPU-saat**. Adim sayisi kaldiraci hala acik.
+
+**Acik kalan "hayalet koloni" maddesi kapandi** — ama tam olarak degil: %0 bu tek
+plakta ve *bu* olcutle (bolge ici ile cevre halka arasindaki kanal farki > 25).
+Faz 4 pilotunda ayni sey bir detektorle, coklu plakta tekrar olculecek.
+
+### ✅ Faz 3 kapisi KAPANDI — 18 Agustos 2026
+
+Klasik silmeyle uretilen plak (`g100_v2`) olculdu ve goruldu.
+
+| | difuzyon silme | **klasik silme** | referans (gercek arka plan) |
+|---|---|---|---|
+| hayalet koloni | 17 / 29 | **0 / 29** | 22 / 29 |
+| medyan kanal farki | 30,2 | **1,5** | 41,6 |
+| tile/goruntu | 31,0 | **19,0** | — |
+| s/goruntu | 98,5 | **60,0** | — |
+| 58.200 goruntu | 1.590 GPU-saat | **961 GPU-saat** | — |
+
+Olcum notu: ilk hesap 7/35 vermisti. Yanlisti — sentetik koloninin silme
+bolgesiyle **ortustugu** kisimlar (ortalama %5,5, karar 3.28) bolge icini
+karartip "hayalet" gibi gosteriyordu. Orasi zaten **etiketli** bir koloni. Olcut
+duzeltildi: silme bolgesinin yalnizca sentetik maske disinda kalan pikselleri
+sayiliyor. Duzeltilmis sayi 0/29.
+
+`ERASE_WARN_PX` uyarisi 172 px'lik bir bolge icin atesledi; o bolge gozle
+kontrol edildi, klasik doldurma orada da temiz. Uyari kalsin — bu sefer yanlis
+alarmdi, her zaman olmayabilir.
+
+**Plak gozle:** cerceve, plaka kenari, uzerindeki yazi ve cizikler gercek;
+36 kolonin hepsi etiketli; etiketsiz tek bir nesne yok. Tek sorulacak soru
+("bu gercek olabilir mi?") icin cevap **evet**.
+
+### 🟢 Olculen: iki butce kaldiraci (bench, 2 plak)
+
+|  tile | adim | tile/goruntu | s/tile | 58.200 goruntu |
+|---|---|---|---|---|
+| **512** | **4** | 16,0 | **0,897** | **232 saat** |
+| 512 | 8 | 16,0 | 1,469 | 380 saat |
+| 512 | 20 | 16,0 | 3,208 | 830 saat |
+| 768 | 4 | 10,0 | 2,214 | 358 saat |
+| 768 | 8 | 10,0 | 3,621 | 585 saat |
+| 768 | 20 | 10,0 | 7,843 | 1.268 saat |
+
+| # | Karar | Gerekce |
+|---|---|---|
+| 3.66 | **Uretim ayari: tile 512, 4 denoising adimi.** | (a) **768 baskin sekilde kotu.** Alan 2,25 kat buyuyor, tile sayisi yalnizca 1,6 kat azaliyor; her adim sayisinda 512'den pahali. Tile boyutu bir kaldirac degilmis — olculmeden bilinemezdi. (b) **4 adim gorsel olarak 20 adimdan ayirt edilemiyor.** Maskeler kucuk ve cevre baglami cok guclu oldugu icin ornekleyici az adimda yakinsiyor. (c) Doku olcumu de ayni yonu gosteriyor: koloni ici Laplace standart sapmasi 4 adimda **26,7**, 20 adimda 21,7, gercek kolonilerde **25,3** — yani 20 adim gercekten daha *puruzsuz*, 4 adim gercege daha yakin. Uyari: bu referans arka plandaki kucuk `S.aureus` kolonilerinden, sentetikler ise buyuk `P.aeruginosa`; olcum destekleyici bir veri, tek basina karar degil. Karar gozle + bu olcumun birlikte. |
+
+**Uretim: 961 → 232 GPU-saat.** Bugun uretim kalemi 1.590'dan 232'ye indi (%85).
+
+### Guncel butce
+
+| kalem | GPU-saat |
+|---|---|
+| egitim (61 kosu) | 375 – 623 |
+| uretim (58.200 goruntu, 512/4 adim) | **232** |
+| LoRA x4 (olculdu) | 1,8 |
+| XAI | 0,3 |
+| **GENEL** | **609 – 857 GPU-saat** |
+
+Uretim artik toplamin %30'u degil, ~%30'undan azi — ve **olculmus** bir sayi.
+Kalan belirsizligin tamami egitim tarafinda; o da ilk G100 kosusuyla kapanacak.
+
+### Yeni acik madde
+
+| Konu | Durum |
+|---|---|
+| Tur gorunum sadakati | Bu plak tamamen `P.aeruginosa` (karar 3.16: plak basina tek baskin tur) ve uretilen koloniler tutarli sekilde ayni gorunuyor — yani model tur bilgisini istemden aliyor gibi. Ama gorunumun **dogru** tur olup olmadigi olculmedi. Faz 4'te sinif basina AP ve bir tur siniflandiricisiyla bakilacak: sentetik `P.aeruginosa` gercek `P.aeruginosa` gibi mi, yoksa tum turler ayni "koloni" gorunumune mi cokuyor? Ikincisi olursa cok-sinifli kollar bozulur. |
+
+
+---
+
 ## Kod taramasi ve butce duzeltmesi (17 Agustos 2026)
 
 Deponun tamami satir satir okundu; 25 madde cikti. Tamami `KOD_HARITASI.md`'de,

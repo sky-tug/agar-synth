@@ -1,0 +1,12 @@
+{
+  "level": 100,
+  "n_crops": 168,
+  "steps": 1500,
+  "rank": 16,
+  "lr": 0.0001,
+  "batch": 1,
+  "base_model": "runwayml/stable-diffusion-inpainting",
+  "source_list": null,
+  "hours": 0.439,
+  "peak_vram_gb": 5.654
+}

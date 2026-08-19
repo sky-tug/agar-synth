@@ -194,7 +194,7 @@ Data pipeline and measurement infrastructure are complete and tested.
 The layout and mask stages of the generation pipeline are complete and tested.
 LoRA adaptation and inpainting are pending full-dataset access and GPU allocation.
 
-Estimated cost of the full grid: **512–761 GPU-hours** (61 training runs +
+Estimated cost of the full grid: **609–857 GPU-hours** (61 training runs +
 ~58,000 synthetic images + 4 LoRA adaptations). See `scripts/budget.py`.
 
 ## Licence and citation

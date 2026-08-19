@@ -30,6 +30,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mask as M            # noqa: E402
 import layout as L          # noqa: E402
+import tiles as T           # noqa: E402
 
 PASSED, FAILED = [], []
 
@@ -301,6 +302,71 @@ def test_mask_erase():
     check("the erase area is larger than the real colony", ratio > 1.0)
 
 
+def test_tiling():
+    """Decision 3.51 / 3.52 -- the tiling layer that makes native-resolution
+    inpainting possible, and the invariant that no colony is ever split."""
+    print("\n16) Tiling -- no colony may be split across tiles")
+    W = H = 2048
+    rng = np.random.default_rng(11)
+    par = sample_params(n_min=40, n_max=40, diameter=0.05)
+
+    split = 0
+    uncovered = 0
+    counts = []
+    for _ in range(25):
+        colonies = L.one_plate(rng, par)[0]
+        tiles = T.place_tiles(colonies, W, H, tile=512)
+        counts.append(len(tiles))
+        boxes = T.colony_boxes(colonies, W, H)
+        # every colony must be wholly inside EXACTLY ONE tile
+        for i, b in enumerate(boxes):
+            owners = [t for t in tiles if t.contains_box(*b)]
+            if not owners:
+                uncovered += 1
+            claimed = [t for t in tiles if i in t.colony_idx]
+            if len(claimed) != 1:
+                split += 1
+    check("every colony is wholly inside a tile", uncovered == 0, f"{uncovered} uncovered")
+    check("every colony is claimed by exactly one tile", split == 0, f"{split} split")
+    check("tiles stay inside the image",
+          all(t.x0 >= 0 and t.y0 >= 0 and t.x1 <= W and t.y1 <= H
+              for t in tiles), "")
+    check("tiles/plate is in the measured band (12-22 at 512)",
+          12 <= np.mean(counts) <= 22, f"mean {np.mean(counts):.1f}")
+
+    # a colony bigger than the tile must ERROR, not be dropped (decision 3.22)
+    big = [{"xc": 0.5, "yc": 0.5, "diameter": 0.40, "cls": "E.coli", "w": 0.4, "h": 0.4}]
+    try:
+        T.place_tiles(big, W, H, tile=512)
+        check("oversized colony raises instead of being dropped", False, "no error")
+    except ValueError as e:
+        check("oversized colony raises instead of being dropped",
+              "tile" in str(e).lower(), str(e)[:50])
+
+    print("\n17) Compositing -- nothing outside the mask may change")
+    base = rng.integers(0, 255, (W, H, 3), dtype=np.uint8)
+    before = base.copy()
+    colonies = L.one_plate(rng, par)[0]
+    plan = {"colonies": colonies}
+    syn, erase, both = M.build_masks(plan, [], W, H)
+    tiles = T.place_tiles(colonies, W, H, tile=512)
+    gen = np.zeros((512, 512, 3), dtype=np.uint8)      # deliberately black
+    for t in tiles:
+        T.composite(base, gen, both, t, feather=0)
+    disagree_outside = int((base[both == 0] != before[both == 0]).sum())
+    changed_inside = int((base[both > 0] != before[both > 0]).sum())
+    check("pixels OUTSIDE the mask are byte-identical", disagree_outside == 0,
+          f"{disagree_outside} changed")
+    check("pixels INSIDE the mask did change", changed_inside > 0,
+          f"{changed_inside} changed")
+
+    w = T.blend_weights(64, 16)
+    check("blend weights are 1.0 in the interior", abs(w[32, 32] - 1.0) < 1e-6)
+    check("blend weights fall to ~0 at the edge", w[0, 0] < 1e-6, f"{w[0,0]:.2e}")
+    check("blend weights are symmetric",
+          np.allclose(w, w[::-1, :]) and np.allclose(w, w[:, ::-1]))
+
+
 def main():
     print("=" * 62)
     print("GENERATION PIPELINE SANITY TEST  (layout.py + mask.py)")
@@ -309,7 +375,7 @@ def main():
               test_gamma_extremes, test_gamma_monotone, test_hard_limit, test_bounds,
               test_no_silent_drop, test_deterministic, test_naive_ablation,
               test_level_lock, test_mask_area, test_mask_plate_clipping,
-              test_mask_erase):
+              test_mask_erase, test_tiling):
         f()
     print("\n" + "=" * 62)
     print(f"PASSED: {len(PASSED)}   FAILED: {len(FAILED)}")

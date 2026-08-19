@@ -138,6 +138,18 @@ def main():
     ap.add_argument("--scenarios", action="store_true",
                     help="if it does not fit, also show the cut-down scenarios")
     # generation (Phase 3) cost
+    # Decision 3.53: generation cost is NOT seconds-per-image. Inpainting runs at
+    # native resolution in tiles (decision 3.51), so the cost is
+    #     tiles_per_image x seconds_per_tile
+    # Measured on generated layouts: 16.3 tiles/plate at 512, 9.7 at 768.
+    # The old --gen-sec-per-image 8 was implicitly assuming ~1 tile and
+    # understated production by 2-4x.
+    ap.add_argument("--tiles-per-image", type=float, default=16.3,
+                    help="measured tiles per plate (512px tile -> 16.3, 768 -> 9.7). "
+                         "src/generate/tiles.py tile_stats() reports this.")
+    ap.add_argument("--sec-per-tile", type=float, default=0.0,
+                    help="one inpainting pass for one tile. THIS IS THE BUDGET "
+                         "LEVER: ~1.5 s at 20 steps, ~0.4 s at 4-8 distilled steps.")
     ap.add_argument("--gen-sec-per-image", type=float, default=0.0,
                     help="inpainting time of one synthetic image (s)")
     ap.add_argument("--lora-hours", type=float, default=0.0,
@@ -222,7 +234,10 @@ def main():
 
     # ---------------- generation cost (Phase 3) ----------------
     gen_hours = 0.0
-    if args.gen_sec_per_image or args.lora_hours:
+    # sec-per-tile wins if given; otherwise fall back to the old per-image number
+    per_image_sec = (args.tiles_per_image * args.sec_per_tile
+                     if args.sec_per_tile else args.gen_sec_per_image)
+    if per_image_sec or args.lora_hours:
         # The synthetic share is now read from the arm definition, not from the name.
         synth_share = 0.0
         for arm in selected:
@@ -238,14 +253,27 @@ def main():
             multiplier = max(sd for _, sd, _ in (ARMS[a] for a in selected))
 
         n_synth = int(round(synth_share * n_full)) * multiplier
-        gen_hours = (n_synth * args.gen_sec_per_image / 3600
+        gen_hours = (n_synth * per_image_sec / 3600
                      + args.lora_count * args.lora_hours)
+        n_tiles = n_synth * args.tiles_per_image if args.sec_per_tile else None
         print()
-        print(f"generation (Phase 3) : {n_synth} synthetic images "
-              f"x {args.gen_sec_per_image} s  +  {args.lora_count} LoRA "
-              f"x {args.lora_hours} h"
-              + (f"   [separate generation per seed, x{multiplier}]" if multiplier > 1
-                 else "   [single synthetic set, shared by the seeds]"))
+        if args.sec_per_tile:
+            # Decision 3.51/3.53: inpainting is tiled at native resolution.
+            print(f"generation (Phase 3) : {n_synth} synthetic images "
+                  f"x {args.tiles_per_image} tiles x {args.sec_per_tile} s/tile")
+            print(f"                       = {n_tiles/1e6:.2f}M inpainting passes"
+                  + (f"   [separate set per seed, x{multiplier}]" if multiplier > 1
+                     else "   [single synthetic set, shared by the seeds]"))
+            print(f"                       + {args.lora_count} LoRA x {args.lora_hours} h")
+        else:
+            print(f"generation (Phase 3) : {n_synth} synthetic images "
+                  f"x {args.gen_sec_per_image} s  +  {args.lora_count} LoRA "
+                  f"x {args.lora_hours} h"
+                  + (f"   [separate set per seed, x{multiplier}]" if multiplier > 1
+                     else "   [single synthetic set, shared by the seeds]"))
+            print("  [!] --gen-sec-per-image is the OLD cost model and assumes ~1 tile "
+                  "per image.\n      Inpainting is tiled (decision 3.51); use "
+                  "--sec-per-tile instead.")
         print(f"                     = {gen_hours:.1f} GPU-hours")
 
     # ---------------- XAI arm (no training, inference) ----------------
