@@ -32,6 +32,7 @@ import mask as M            # noqa: E402
 import layout as L          # noqa: E402
 import tiles as T           # noqa: E402
 import species_check as S   # noqa: E402
+import inpaint as I         # noqa: E402
 
 PASSED, FAILED = [], []
 
@@ -461,6 +462,44 @@ def test_species_check():
           "a" not in S.medians(thin))
 
 
+def test_canvas_scaling():
+    """Decision 3.70 -- the canvas may be rescaled per tile so that a colony
+    occupies a constant number of canvas pixels. The measurement that motivated
+    it: real colonies get smoother as they grow (rank correlation -0.57),
+    generated ones do not (-0.18)."""
+    print("\n19) Canvas scaling -- texture must follow colony size")
+
+    def col(d):                       # d = diameter in pixels, W = 2048
+        return {"diameter": d / 2048, "cls": "E.coli"}
+
+    W = 2048
+    small = [col(29)] * 4             # S.aureus
+    large = [col(155)] * 4            # P.aeruginosa
+    idx = [0, 1, 2, 3]
+
+    c_small = I.canvas_for(512, 1.0, I.TARGET_DIAMETER, small, idx, W)
+    c_large = I.canvas_for(512, 1.0, I.TARGET_DIAMETER, large, idx, W)
+    check("a small colony gets a LARGER canvas than a big one",
+          c_small > c_large, f"{c_small} vs {c_large}")
+    check("the canvas stays within the clamp",
+          I.MIN_CANVAS <= c_small <= I.MAX_CANVAS
+          and I.MIN_CANVAS <= c_large <= I.MAX_CANVAS,
+          f"{I.MIN_CANVAS}-{I.MAX_CANVAS}")
+    check("the canvas is a multiple of 8 (the VAE stride)",
+          c_small % 8 == 0 and c_large % 8 == 0)
+
+    # Off by default: the original behaviour must be bit-identical, otherwise
+    # every number measured before this decision silently stops comparing.
+    check("target_diameter=0 and gen_scale=1 leave the canvas untouched",
+          I.canvas_for(512, 1.0, 0, small, idx, W) == 512)
+    check("a flat gen_scale scales the canvas",
+          I.canvas_for(512, 0.5, 0, small, idx, W) == 256)
+
+    # An empty tile has no colony to measure; it must not crash or divide by 0.
+    check("a tile with no colonies falls back to gen_scale",
+          I.canvas_for(512, 1.0, I.TARGET_DIAMETER, [], [], W) == 512)
+
+
 def main():
     print("=" * 62)
     print("GENERATION PIPELINE SANITY TEST  (layout.py + mask.py)")
@@ -469,7 +508,8 @@ def main():
               test_gamma_extremes, test_gamma_monotone, test_hard_limit, test_bounds,
               test_no_silent_drop, test_deterministic, test_naive_ablation,
               test_level_lock, test_mask_area, test_mask_plate_clipping,
-              test_mask_erase, test_tiling, test_species_check):
+              test_mask_erase, test_tiling, test_species_check,
+              test_canvas_scaling):
         f()
     print("\n" + "=" * 62)
     print(f"PASSED: {len(PASSED)}   FAILED: {len(FAILED)}")

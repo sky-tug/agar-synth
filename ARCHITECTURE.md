@@ -319,7 +319,7 @@ image is deliberately **800×400** — on a square image a W/H swap is invisible
 
 ### `src/generate/test_generate.py`
 
-55 checks in 18 groups, covering `layout.py`, `mask.py`, `tiles.py` and
+61 checks in 19 groups, covering `layout.py`, `mask.py`, `tiles.py` and
 `species_check.py`. It exists (decision 3.37) because `layout.py` contains at
 least as much treacherous mathematics as `metrics.py` — empirical inverse-CDF
 sampling, a Strauss gamma bisection, lognormal parameter estimation — and it
@@ -645,6 +645,26 @@ count — tile size is not a lever, and that could not be known without measurin
 And 4 steps is visually indistinguishable from 20 here (small masks, very strong
 surrounding context), so `--steps` defaults to **4**.
 
+**Per-colony canvas scaling** (decision 3.70) — the newest, and still under test.
+Real colonies get *smoother* as they get larger: rank correlation between
+diameter and texture is **−0.57**. Generated ones do not: **−0.18**. The
+generator stamps texture at a fixed spatial frequency regardless of colony size,
+which is exactly what a fixed latent grid does — SD's VAE downsamples by 8, so
+the invented structure has a constant size in *canvas* pixels. Decision 3.51
+solved this at the plate scale; this is the same problem one level down, at the
+colony scale.
+
+`canvas_for()` therefore rescales each tile so a colony occupies a constant
+number of canvas pixels (`--target-diameter 128`), clamped to 256–768 because
+cost is quadratic in the canvas. `--gen-scale` applies a flat factor instead, and
+serves as the control: without it, a positive result could not distinguish
+"scaling per colony helped" from "generating coarser helped". Both default to
+off, so every number measured before this decision still compares.
+
+The resampling cannot affect labels: `tiles.composite` gates on the
+**full-resolution** mask, so no interpolation can move a colony outside its
+labelled disc. Decision 3.24 holds regardless of what happens on the canvas.
+
 ### `src/generate/species_check.py`
 
 Does a synthetic colony look like the species its label claims?
@@ -840,10 +860,13 @@ Honest list, kept here so it is visible from the code rather than only from
 
 - **Species separability** retains 27 % of the real value on the demo subset
   (colour + contrast axes). This is the open problem of Phase 4.
-- **Texture is 3–8× too high** in generated colonies, and is *not* a sampler
-  artefact (4 steps 5.8, 20 steps 5.9, real 1.5 — decision 3.67). Risk: the
-  detector learns "grainy = colony" and the S100 arm measures the cue rather than
-  the substitution. A control run for this is not designed yet.
+- **Texture is at the wrong scale** (decision 3.69). Not a sampler artefact
+  (4 steps 5.8, 20 steps 5.9, real 1.5), not a guidance artefact (3–6× at every
+  value tested), and not the LoRA (20.2 without it, 18.9 with it, real 4.6). It
+  is the fixed latent grid. `--target-diameter` (decision 3.70) is the first
+  attempt at a fix and is not yet validated. Risk while it stands: the detector
+  learns "grainy = colony" and the S100 arm measures the cue rather than the
+  substitution. A control run for that is not designed yet.
 - **Everything is fitted on 10 demo plates.** Gamma, the background pool, the
   layout quantiles and the LoRA all carry `provisional` in spirit if not in the
   file. Full AGAR access is pending.

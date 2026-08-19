@@ -227,6 +227,53 @@ CLEAN_PROMPT = ("clean agar plate surface, smooth uniform medium, no colonies, "
 ERASE_RADIUS = 7
 ERASE_WARN_PX = 120
 
+# Decision 3.70: the canvas the model paints on may be RESCALED per tile.
+#
+# Measured 19 August: real colonies get SMOOTHER as they get larger (rank
+# correlation between diameter and texture: -0.57). Generated colonies do not
+# (-0.18). The generator stamps texture at a fixed spatial frequency regardless
+# of how big the colony is -- which is exactly what a fixed latent grid does.
+# SD's VAE downsamples by 8, so the invented structure has a fixed size in
+# CANVAS pixels; a 29 px S.aureus colony is ~3.6 latent pixels and cannot come
+# out smooth, while a 155 px colony gets the same fine structure a small one
+# does.
+#
+# Decision 3.51 solved this at the PLATE scale (tile instead of downscale).
+# This is the same problem one level down, at the COLONY scale.
+#
+# The fix: resample the tile so that a colony occupies a CONSTANT number of
+# canvas pixels. Then the model's fixed-frequency texture lands at the same
+# RELATIVE scale on every colony, and in image space the texture frequency
+# scales with the colony -- which is the real behaviour.
+#
+# The mask gate still uses the FULL-RESOLUTION mask (tiles.composite), so no
+# resampling can move a colony outside its labelled disc. Decision 3.24 holds
+# regardless of what happens on the canvas.
+#
+# Cost is quadratic in the canvas: a tile at 768 costs 2.25x one at 512. The
+# clamp keeps that bounded, and run() prints the measured multiplier.
+MIN_CANVAS = 256
+MAX_CANVAS = 768
+TARGET_DIAMETER = 128        # canvas px a colony should occupy, when enabled
+
+
+def canvas_for(tile: int, gen_scale: float, target_diameter: int,
+               colonies, idx, W: int) -> int:
+    """
+    Canvas size for one tile (decision 3.70).
+
+    target_diameter > 0 -> per-colony scaling: the tile's median colony is made
+    `target_diameter` canvas pixels wide. Otherwise the flat `gen_scale` is used
+    (1.0 = the original behaviour, canvas == tile).
+    """
+    s = gen_scale
+    if target_diameter and idx:
+        d = float(np.median([colonies[i]["diameter"] * W for i in idx]))
+        if d > 0:
+            s = target_diameter / d
+    c = int(round(tile * s / 8) * 8)
+    return int(min(max(c, MIN_CANVAS), MAX_CANVAS))
+
 
 def erase_classical(img: np.ndarray, erase: np.ndarray) -> tuple[np.ndarray, dict]:
     """
@@ -253,7 +300,9 @@ def generate_plate(bg_path: Path, mask_path: Path, plan: dict, pipe,
                    tile: int, steps: int, guidance: float, strength: float,
                    seed: int, dry: bool, rng,
                    erase_mask_path: Path | None = None,
-                   erase_method: str = "classical"
+                   erase_method: str = "classical",
+                   gen_scale: float = 1.0,
+                   target_diameter: int = 0
                    ) -> tuple[np.ndarray, list[float]]:
     """
     Returns (synthetic plate BGR, per-tile seconds).
@@ -294,6 +343,7 @@ def generate_plate(bg_path: Path, mask_path: Path, plan: dict, pipe,
     colonies = plan["colonies"]
     out = bg.copy()
     per_tile = []
+    canvases: list[int] = []
     n = 0
 
     # ---- pass 1: erase -> plain agar ---------------------------------------
@@ -346,22 +396,38 @@ def generate_plate(bg_path: Path, mask_path: Path, plan: dict, pipe,
         if (mcrop > 0).sum() == 0:
             continue                       # nothing to paint here
 
+        # Decision 3.70: the canvas may differ from the tile.
+        canvas = canvas_for(tile, gen_scale, target_diameter,
+                            colonies, t.colony_idx, W)
+        canvases.append(canvas)
+        if canvas != tile:
+            down = canvas < tile
+            crop_in = cv2.resize(crop, (canvas, canvas),
+                                 interpolation=cv2.INTER_AREA if down else cv2.INTER_CUBIC)
+            mask_in = cv2.resize(mcrop, (canvas, canvas),
+                                 interpolation=cv2.INTER_NEAREST)
+        else:
+            crop_in, mask_in = crop, mcrop
+
         t0 = time.perf_counter()
         if dry:
-            gen = _stub_paint(crop, mcrop, rng)
+            gen = _stub_paint(crop_in, mask_in, rng)
         else:
             from PIL import Image
             import torch
             g = torch.Generator(device=pipe.device).manual_seed(seed * 1000 + n)
-            img = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
-            msk = Image.fromarray(mcrop)
+            img = Image.fromarray(cv2.cvtColor(crop_in, cv2.COLOR_BGR2RGB))
+            msk = Image.fromarray(mask_in)
             res = pipe(prompt=species_prompt(colonies, t.colony_idx),
                        negative_prompt=NEGATIVE_PROMPT,
                        image=img, mask_image=msk,
-                       height=tile, width=tile,
+                       height=canvas, width=canvas,
                        num_inference_steps=steps, guidance_scale=guidance,
                        strength=strength, generator=g).images[0]
             gen = cv2.cvtColor(np.array(res), cv2.COLOR_RGB2BGR)
+        if canvas != tile:
+            gen = cv2.resize(gen, (tile, tile),
+                             interpolation=cv2.INTER_CUBIC if canvas < tile else cv2.INTER_AREA)
         per_tile.append(time.perf_counter() - t0)
         n += 1
 
@@ -369,6 +435,13 @@ def generate_plate(bg_path: Path, mask_path: Path, plan: dict, pipe,
         # its mask never reaches the plate. This is what keeps the untouched
         # background byte-identical to the real plate.
         T.composite(out, gen, mask, t, feather=32)
+
+    if canvases and any(c != tile for c in canvases):
+        # Cost is quadratic in the canvas; report the multiplier rather than
+        # letting it appear later as an unexplained slowdown.
+        mult = float(np.mean([(c / tile) ** 2 for c in canvases]))
+        print(f"  [scale] canvas {min(canvases)}-{max(canvases)} px "
+              f"(tile {tile}), cost x{mult:.2f}")
 
     return out, per_tile
 
@@ -449,7 +522,8 @@ def run(args):
             src / "backgrounds" / f"{name}.jpg", syn_p,
             plan, pipe, args.tile, args.steps, args.guidance, args.strength,
             args.seed, args.dry, rng, erase_mask_path=er_p,
-            erase_method=args.erase_method)
+            erase_method=args.erase_method,
+            gen_scale=args.gen_scale, target_diameter=args.target_diameter)
 
         cv2.imwrite(str(out / "images" / f"{name}.jpg"), img,
                     [cv2.IMWRITE_JPEG_QUALITY, 95])
@@ -548,7 +622,8 @@ def bench(args):
                     src / "backgrounds" / f"{name}.jpg", syn_p,
                     plan, pipe, tile, steps, args.guidance, args.strength,
                     0, args.dry, rng, erase_mask_path=er_p,
-                    erase_method=args.erase_method)
+                    erase_method=args.erase_method,
+            gen_scale=args.gen_scale, target_diameter=args.target_diameter)
                 # Cost without a picture is half an answer: the closing note
                 # below says "pick a setting only after LOOKING at it", so the
                 # cheapest candidate has to be lookable. One plate per setting.
@@ -589,6 +664,14 @@ def main():
         p.add_argument("--device", default="cuda")
         p.add_argument("--guidance", type=float, default=7.5)
         p.add_argument("--strength", type=float, default=1.0)
+        p.add_argument("--gen-scale", type=float, default=1.0,
+                       help="flat canvas rescale (decision 3.70). 1.0 = the "
+                            "original behaviour. <1 makes the generated texture "
+                            "COARSER in image pixels, >1 finer.")
+        p.add_argument("--target-diameter", type=int, default=0,
+                       help="canvas px a colony should occupy; overrides "
+                            "--gen-scale per tile (decision 3.70). "
+                            f"0 = off, {TARGET_DIAMETER} = the calibrated value.")
         p.add_argument("--erase-method", default="classical",
                        choices=["classical", "diffusion"],
                        help="how the erase regions become plain agar "

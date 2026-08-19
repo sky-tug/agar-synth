@@ -705,3 +705,131 @@ varsayimlariyla uc senaryo.
 | Clark–Evans %10 yuksek | Uretilen 1.13, gercek 1.03. gamma kisa menzilde itiyor ama gercek veri daha *heterojen*: bazi ciftler cok ic ice, bazilari cok uzak. Tek parametreli Strauss bunu tam yakalayamiyor olabilir. 10 plakta karar verilemez; tam veride bakilacak. Gerekirse iki menzilli (sert cekirdek + yumusak itme) modele gecilir. |
 | `lora_10`'un veri yeterliligi | ~800 goruntuluk alt kumede LoRA'nin ise yarar bir koloni gorunumu ogrenip ogrenemedigi olculmeli. Ogrenemezse G10+S kolu "sentetik veri yardim etmiyor" degil, "uretici model yetersiz veriyle uyarlanmis" sonucunu verir — ikisi farkli iddialar ve karistirilamaz. Pilotta (Faz 4) test edilecek. |
 | Arka plan havuzunun buyuklugu | `train_10` icinde yeterince bos/az koloni iceren plak var mi? Yoksa ayni arka plan defalarca kullanilacak → sentetik cesitlilik duser, FID/KID bunu yakalar. Olculecek. |
+
+---
+
+## Faz 4 — pilot (19 Agustos 2026)
+
+### 🔴 Ilk deney: dokunun sebebi guidance DEGIL
+
+Hipotez: doku fazlaligi yuksek guidance'tan (7,5) geliyor olabilir; istemde
+"sharp focus" var ve yuksek guidance modeli istemi asiri takip etmeye zorluyor.
+Test: ayni 4 plak, guidance 1,5 / 3,0 / 5,0 / 7,5. Toplam ~5 dakika.
+
+| guidance | B.subtilis doku | P.aeruginosa doku | S.aureus doku | dokusuz ayrilabilirlik |
+|---|---|---|---|---|
+| gercek | 9,2 | 5,2 | 11,3 | %100 (1,65) |
+| 1,5 | 55,2 | 31,1 | 33,2 | **%6** |
+| 3,0 | 48,9 | 26,7 | 58,3 | %32 |
+| 5,0 | 44,4 | 22,4 | 66,7 | %25 |
+| **7,5 (mevcut)** | **41,3** | **15,9** | 87,8 | %27 |
+
+**Hipotez curudu.** Hicbir guidance degeri doku oranini 2'nin altina indirmiyor;
+en iyi degerler zaten mevcut varsayilanda (7,5). Dahasi guidance'i dusurmek
+**zarar veriyor**: 1,5'te `S.aureus` sariligi 58 → 39'a (gercek 89,9) ve sinif
+ayrimi %27 → %6'ya cokuyor. Buyuk ve kucuk koloniler ters yonde tepki veriyor
+(guidance artarken B.subtilis dokusu duser, S.aureus dokusu yukselir) — bu da
+tek bir "keskinlik" acikamasinin yanlis oldugunu gosteriyor.
+
+**Karar: guidance 7,5'te kaliyor.** Negatif sonuc ama ucuz ve kesin.
+
+### 🔴 Ikinci deney: sebep LoRA da degil
+
+Ayni plak, ayni tohum, ayni adim sayisi (20), yalnizca LoRA var/yok:
+
+| | P.aeruginosa doku |
+|---|---|
+| gercek (plak 14512) | **4,6** |
+| sentetik, **LoRA YOK** | 20,2 |
+| sentetik, LoRA VAR | 18,9 |
+
+LoRA dokuyu neredeyse hic degistirmiyor. Yani fazla doku **taban modelin**
+ozelligi, uyarlamanin degil. Bu, "veri artinca duzelir" beklentisini de zayiflatiyor:
+tam veri LoRA'yi iyilestirir, taban modeli degistirmez.
+
+### 🟢 Ucuncu olcum: kusur "fazla doku" degil, "yanlis olcekte doku"
+
+Koloni **capi** ile **doku** arasindaki sira korelasyonu (Spearman):
+
+| | gercek | sentetik |
+|---|---|---|
+| B.subtilis | −0,22 | −0,02 |
+| P.aeruginosa | −0,42 | +0,09 |
+| C.albicans | −0,54 | (uretilmedi) |
+| E.coli | −0,27 | (n<15) |
+| **hepsi** | **−0,57** | **−0,18** |
+
+Gercekte koloni **buyudukce puruzsuzlasiyor** — ic yapisi koloniyle birlikte
+olcekleniyor. Sentetikte bu iliski **yok**: jenerator koloni boyutundan bagimsiz,
+**sabit uzamsal frekansta** bir doku basiyor.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.69 | **Doku kusuru bir "miktar" sorunu degil, bir OLCEK sorunu.** Rapor edilecek ve cozulmeye calisilacak sey "doku %X fazla" degil, "uretilen dokunun uzamsal frekansi koloni boyutuyla olceklenmiyor". | Uc olcum birlikte: (a) guidance degistirmek oranı degistirmiyor, (b) LoRA degistirmek degistirmiyor, (c) gercekte cap-doku korelasyonu −0,57 iken sentetikte −0,18. Bu, sabit bir gizil (latent) izgara uzerinde uretim yapmanin beklenen sonucu: SD'nin VAE'si 8 kat asagi ornekliyor, dolayisiyla uydurulan dokunun frekansi **goruntu pikselinde sabit**, nesnenin boyutuna gore degil. Karar 3.51 (karolama) bu sorunu **plak** olceginde cozdu; **koloni** olceginde acik kaldi. Sonuc olarak 29 px'lik bir `S.aureus` kolonisi ~3,6 gizil piksele dusuyor ve puruzsuz uretilemiyor — doku orani orada en kotu (×7,8), 155 px'lik `P.aeruginosa`'da en iyi (×3,1). |
+
+**Bu yeniden cerceveleme, cozum adaylarini da degistiriyor.** "Daha az doku"
+aramak yanlis hedefti. Denenecekler, ucuzdan pahaliya:
+1. **Koloni basina olcekli uretim** — karoyu, koloninin gizil ayak izi sabit
+   kalacak sekilde olcekleyip uretmek, sonra geri olceklemek.
+2. **Boyuta bagli son islem** — uretilen koloni icini capiyla orantili bir
+   alcak geciren suzgecten gecirmek. Ucuz, ama veri uzerinde kozmetik islem;
+   yapilirsa makalede **acikca** yazilmali.
+3. **Daha ince gizil izgarali taban model** (SDXL vb.) veya bir super-cozunurluk
+   asamasi — pahali, butceyi yeniden acar.
+4. Istemi boyut bilgisiyle kosullamak / LoRA'yi boyut-kosullu egitmek.
+
+Once (1) olculecek: kod degisikligi kucuk, maliyeti degistirmiyor, ve hipotezi
+dogrudan test ediyor.
+
+### Dorduncu deney: tuval olcekleme — KISMEN dogrulandi
+
+`--target-diameter 128` (koloni basina tuval olcekleme) ve kontrol olarak
+`--gen-scale 0.5` (duz olcekleme) ayni 4 plakta kosuldu.
+
+**Cap-doku sira korelasyonu, SINIF ICINDE** (asil olculecek sey):
+
+| | B.subtilis | P.aeruginosa | S.aureus |
+|---|---|---|---|
+| **gercek** | **−0,22** | **−0,42** | **+0,11** |
+| g=7,5 (mudahale yok) | −0,02 | +0,09 | −0,06 |
+| **target-diameter 128** | **−0,07** | **−0,31** | −0,20 |
+| gen-scale 0,5 (kontrol) | +0,26 | −0,22 | +0,24 |
+
+**Doku medyani:**
+
+| | B.subtilis | P.aeruginosa | S.aureus | ayrilabilirlik (dokusuz) |
+|---|---|---|---|---|
+| gercek | 9,2 | 5,2 | 11,3 | %100 |
+| g=7,5 | 41,3 | 15,9 | 87,8 | %27 |
+| target-diameter 128 | **29,2** | 21,2 | **52,0** | **%31** |
+| gen-scale 0,5 | 29,1 | 23,6 | **10,1** | %23 |
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.71 | **Tuval olcekleme mekanizmasi gercek, ama etki yetersiz. Varsayilan KAPALI kaliyor** (`--target-diameter 0`); secenek ve olcum kayitta duruyor, tam veride tekrar denenecek. | **Kontrol grubu isini yapti.** Mudahale sinif ici korelasyonu gercege dogru **hareket ettiriyor** (P.aeruginosa +0,09 → −0,31, gercek −0,42; B.subtilis −0,02 → −0,07). Duz olcekleme ise **ters yone** goturuyor (+0,26 ve +0,24). Yani "koloni basina olcekleme" ile "sadece daha kaba uretmek" ayni sey degil ve fark olculdu. Ama doku **buyuklugu** hala 3-5 kat fazla, `P.aeruginosa` bu mudahaleyle **kotulesiyor** (15,9 → 21,2), ve dokusuz ayrilabilirlik %27 → %31 ile gurultu icinde. Kismi bir kazanc icin varsayilani degistirmek, sonraki her olcumu once/sonra diye ikiye bolerdi. |
+| 3.72 | **Karar 3.69'un cercevesi DUZELTILDI: havuzlanmis −0,57 korelasyonu buyuk olcude SINIFLAR ARASI bir etki, sinif ici degil.** | Sinif ici gercek degerler −0,22 / −0,42 / +0,11; havuzlanmis −0,57 bunlarin hepsinden guclu. Sebep: kucuk siniflar (`S.aureus`, `C.albicans`) parlak ve yuksek kontrastli, buyuk sinif (`P.aeruginosa`) soluk. Yani havuzlanmis korelasyonun bir kismi **boyut degil sinif** olcuyor. Kusur hala gercek — sinif ici sentetik degerler ≈0, gercek −0,2…−0,4 — ama iddia 3.69'da yazildigi kadar guclu degil. Bir olcumu, onu uretenin kendisi asiri yorumlayabilir; sayinin ne olctugu her zaman ayrica sorulmali. |
+
+### 🟢 Yan bulgu: 256 tuval, 92 GPU-saat
+
+`--gen-scale 0.5` uretimi **0,305 s/karo**'ya, yani 58.200 goruntu icin
+**92 GPU-saate** dusuruyor (232 yerine). Ve `S.aureus` dokusunu 10,1 yapiyor —
+gercek 11,3. Kalite acisindan **yanlis** cozum (korelasyon ters yone gidiyor,
+ayrilabilirlik %23'e dusuyor), ama sunu gosteriyor: **butcede daha cok yer var.**
+Kalite sorunu cozuldugunde maliyet tarafinda 232 saat bir tavan degil.
+
+### Faz 4'un durumu — 19 Agustos sonu
+
+Dort deney, dort saat, dort sonuc:
+
+| deney | sonuc |
+|---|---|
+| guidance taramasi | ❌ sebep degil, 7,5 en iyisi |
+| LoRA var/yok | ❌ sebep degil, taban model |
+| cap-doku korelasyonu | ✅ kusur yeniden tanimlandi (3.69) |
+| tuval olcekleme + kontrol | 🟡 mekanizma gercek, etki yetersiz (3.71) |
+| kendi olcumumun elestirisi | ✅ 3.69'un cercevesi duzeltildi (3.72) |
+
+Sirada: LoRA'yi boyut-kosullu egitmek (adapt.py'de kirpma olcegini koloni
+boyutuna gore degistirmek) — ama bu **tam veri gerektiriyor**, cunku demo
+pakette tur basina birkac duzine ornek var. Yani Faz 4'un bu kolu da artik
+veriye bagli.

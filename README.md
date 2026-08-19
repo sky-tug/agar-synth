@@ -85,7 +85,7 @@ src/generate/tiles.py        native-resolution tiling; no colony may be split
 src/generate/adapt.py        LoRA adaptation of the inpainting model
 src/generate/inpaint.py      mask + background -> synthetic plate (run / bench)
 src/generate/species_check.py does a synthetic colony look like its label says?
-src/generate/test_generate.py 55 sanity checks
+src/generate/test_generate.py 61 sanity checks
 src/generate/exploration/    one-shot analyses behind the layout model
 
 scripts/train.py             training wrapper (logs time, VRAM, git commit)
