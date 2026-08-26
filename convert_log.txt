@@ -1,0 +1,28 @@
+
+==========================================================
+CONVERSION SUMMARY
+==========================================================
+  scanned JSON             : 18001
+  dropped / subset         : 12732
+  dropped / not countable  : 845   (empty 262 + uncountable 583 + unknown 0)   <- to be reported SEPARATELY in the paper
+  dropped / artifact class : 157   <- to be reported in the paper
+  dropped / unknown class  : 0
+  dropped / image missing  : 0
+  dropped / no valid box   : 0
+  KEPT IMAGES              : 4267
+  total boxes              : 83208
+  clipped boxes            : 1
+  dropped boxes (broken)   : 1
+
+  boxes per class:
+    0  S.aureus         22397
+    1  B.subtilis       4286
+    2  P.aeruginosa     16702
+    3  E.coli           27591
+    4  C.albicans       12232
+
+  manifest -> /home/yusuf/agar-synth/data/processed/manifest.csv
+==========================================================
+
+NEXT STEP: python check_labels.py --data /home/yusuf/agar-synth/data/processed --n 30
+

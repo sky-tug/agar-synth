@@ -30,7 +30,11 @@ CLASS_ORDER = ["S.aureus", "B.subtilis", "P.aeruginosa", "E.coli", "C.albicans"]
 CLASS_TO_ID = {c: i for i, c in enumerate(CLASS_ORDER)}
 
 # Artifact classes left out of scope
-ARTIFACT_CLASSES = {"defects", "contamination"}
+# AGAR writes these capitalised and in the singular: "Defect", "Contamination".
+# Matched in LOWER CASE so a change of spelling cannot silently reclassify them
+# as an unknown class -- the outcome would be the same (dropped) but the paper's
+# elimination table would lose the evidence for decision 1.2. (Decision 3.74)
+ARTIFACT_CLASSES = {"defect", "defects", "contamination", "contaminations"}
 
 IMG_EXTS = [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
 
@@ -111,7 +115,9 @@ def main():
                 cn = None
             if cn == 0:
                 n["dropped_empty"] += 1
-            elif cn is not None and cn > 0:
+            elif cn == -1 or (cn is not None and cn > 0):
+                # AGAR marks uncountable plates with colonies_number = -1,
+                # NOT with a positive count. Verified on 17500.json. (Decision 3.74)
                 n["dropped_uncountable"] += 1
             else:
                 n["dropped_unlabelled_unknown"] += 1
@@ -122,11 +128,13 @@ def main():
         # (deleting the box but keeping the image teaches the model "there is no object here")
         present = {normalize_class(l.get("class", "")) for l in labels}
         present |= {normalize_class(c) for c in (meta.get("classes") or [])}
-        if present & ARTIFACT_CLASSES:
+        if {c.lower() for c in present} & ARTIFACT_CLASSES:
             n["dropped_artifact"] += 1
             continue
 
-        unknown = present - set(CLASS_ORDER) - ARTIFACT_CLASSES
+        # artifact names already caused a 'continue' above, so only the species
+        # order has to be subtracted here
+        unknown = present - set(CLASS_ORDER)
         if unknown:
             for b in unknown:
                 unknown_classes[b] += 1

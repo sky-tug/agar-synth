@@ -11,7 +11,7 @@ Output: CSV tables + PNG plots under <data>/reports/
 
 Usage:
     python analyze_manifest.py --data data/processed
-    python analyze_manifest.py --data data/processed --iou-dup 0.5
+    python analyze_manifest.py --data data/processed --iou-dup 0.53
 """
 
 import argparse
@@ -97,7 +97,14 @@ def coco_size_bucket(area):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
-    ap.add_argument("--iou-dup", type=float, default=0.5,
+    # Decision 3.76: 0.50 was calibrated on the demo package, where the highest
+    # real pair reached 0.450 -- a margin of only 0.05. On the full data the real
+    # IoU distribution gives p99.9 = 0.479, so 0.50 sits INSIDE the normal range
+    # and crowded plates trip it. The threshold now comes from the data, not a
+    # guess. This is a REPORTING threshold: the suspects are listed, never removed.
+    # The 20 pairs it finds are 0.024% of 83208 boxes and were verified by eye --
+    # AGAR annotation noise (duplicate boxes, boxes on the rim reflection).
+    ap.add_argument("--iou-dup", type=float, default=0.53,
                     help="box pairs above this threshold are 'duplicate suspects'")
     ap.add_argument("--tiny-px", type=float, default=8,
                     help="boxes below this size are flagged")
@@ -168,10 +175,27 @@ def main():
     # inside the plate, its OUTER EDGE can stick out; the two are reported
     # separately.
     print(f"  center r > 0.90         : {(box['radius'] > 0.90).sum()}")
-    print(f"  center outside plate r>1: {(box['radius'] > 1.0).sum()}"
-          f"{'   <-- PROBLEM (the plate radius may be wrong)' if (box['radius'] > 1.0).sum() else ''}")
-    print(f"  OUTER EDGE beyond plate : {(box['radius_outer'] > 1.0).sum()}"
-          f"   (3.1% in the demo package -- normal, a colony can touch the edge)")
+
+    # Decision 3.77: this check used to shout "PROBLEM (the plate radius may be
+    # wrong)" on a SINGLE box outside the plate. On the full data it fired on 16
+    # boxes out of 83208 -- 0.019%, one in 5200 -- and those were verified BY EYE
+    # to be AGAR annotation noise, not a wrong constant (e.g. 13672: two identical
+    # boxes on the dark rim band with no colony under them).
+    # exploration/07_plate_edge_check.py measured the radius the data itself asks
+    # for: 99.9% of the centres sit inside 0.4561*W, and the constant is 0.465*W.
+    # A check that cries wolf at one in five thousand teaches you to ignore it.
+    # It now fires only when the share is large enough to mean a wrong plate model.
+    OUTSIDE_TOL = 0.005                      # 0.5% of all boxes
+    n_out = int((box["radius"] > 1.0).sum())
+    frac_out = n_out / max(len(box), 1)
+    tag = ("   <-- PROBLEM (the plate radius may be wrong)"
+           if frac_out > OUTSIDE_TOL
+           else f"   ({frac_out*100:.3f}% -- annotation noise, below the {OUTSIDE_TOL*100:.1f}% tolerance)")
+    print(f"  center outside plate r>1: {n_out}{tag}")
+
+    n_out_e = int((box["radius_outer"] > 1.0).sum())
+    print(f"  OUTER EDGE beyond plate : {n_out_e}"
+          f"   ({n_out_e/max(len(box),1)*100:.1f}% -- normal, a colony can touch the edge)")
 
     # duplicate box suspects -- within an image, vectorized IoU
     dup_rows = []

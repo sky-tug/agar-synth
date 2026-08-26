@@ -46,7 +46,14 @@ train:
 
   epochs: 150
   patience: 50               # early stopping; will be logged for the time measurement
-  batch: 8                   # overridden per VRAM via scripts/train.py --batch
+  # MEASURED on the full data, RTX 4060 Laptop 8 GB (decision 3.75):
+  #   batch 8 -> peak VRAM 7.209 / 7.62 GB, and the caching allocator already
+  #              logged an OOM at 45% of a SINGLE epoch. 374 iter @ 2.5 it/s = 150 s
+  #   batch 4 -> peak VRAM 3.916 GB, no OOM.        747 iter @ 5.3 it/s = 141 s
+  # batch 4 is both safer AND faster: at batch 8 the allocator thrashes.
+  # nbs=64 keeps the effective optimisation batch identical, so the science
+  # is unchanged. The SAME value must be used for all 61 runs.
+  batch: 4                   # overridden per VRAM via scripts/train.py --batch
   optimizer: AdamW
   lr0: 0.001
   lrf: 0.01
@@ -55,7 +62,12 @@ train:
   warmup_epochs: 3.0
   cos_lr: true
   deterministic: true
-  workers: 8
+  # SYSTEM RAM, not VRAM (decision 3.75). Each worker decodes a full 2048x2048
+  # plate before resizing; on the 16 GB machine 8 workers exhausted RAM and the
+  # OOM killer took down the desktop session (25 Aug). 2 measured stable.
+  # Keep FIXED across all runs: it does not change the result, but it does change
+  # the TIME measurement that feeds budget.py.
+  workers: 2
   amp: true                  # mixed precision; the time measurement is done with this
   val: true
   plots: false               # unnecessary I/O in the grid

@@ -177,6 +177,10 @@ def main():
     ap.add_argument("--epochs", type=int, help="override the config (for the smoke test)")
     ap.add_argument("--imgsz", type=int, help="override the config")
     ap.add_argument("--batch", type=int, help="override the config (according to VRAM)")
+    ap.add_argument("--workers", type=int,
+                    help="override the config (according to SYSTEM RAM, not VRAM). "
+                         "Each worker decodes a full-size 2048x2048 plate before "
+                         "resizing, so on a 16 GB machine 8 workers can exhaust RAM.")
     ap.add_argument("--patience", type=int,
                     help="override the config. Give a high value in the "
                          "memorisation test (so that early stopping does not "
@@ -206,6 +210,8 @@ def main():
         t["imgsz"] = args.imgsz
     if args.batch:
         t["batch"] = args.batch
+    if args.workers is not None:
+        t["workers"] = args.workers
     if args.patience is not None:
         t["patience"] = args.patience
 

@@ -1,7 +1,0 @@
-,goruntu,S.aureus,B.subtilis,P.aeruginosa,E.coli,C.albicans,kutu
-train,10,152,53,41,109,32,387
-val,0,0,0,0,0,0,0
-test,0,0,0,0,0,0,0
-train_50,7,143,19,26,78,32,298
-train_25,7,143,19,26,78,32,298
-train_10,7,143,19,26,78,32,298

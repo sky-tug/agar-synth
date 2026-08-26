@@ -23,13 +23,21 @@ wandb>=0.16
 # --- Faz 2: klasik veri artirma kolu (Baseline B/C) ---
 albumentations>=1.4
 
-# --- Faz 3: uretim hatti (difuzyon) ---
-# Faz 3'e gelince yorumu kaldir -- simdi kurmak gereksiz yer kaplar (~5 GB)
-# diffusers>=0.27
-# transformers>=4.40
-# accelerate>=0.30
-# peft>=0.10
-# safetensors
+# --- Faz 3: uretim hatti (difuzyon) -- 26 Agustos: ACILDI ---
+# src/generate/ icinde GERCEKTEN import edilenler: diffusers, peft.
+# transformers/accelerate/safetensors diffusers'in calisma zamani bagimliligi
+# (SD 1.5 inpainting metin kodlayicisi icin); acikca yaziliyor ki makale
+# yeniden uretilebilir olsun. Kurulu ve olcumlerin yapildigi surumler:
+# diffusers 0.39.0, peft 0.20.0.
+diffusers>=0.39
+peft>=0.20
+transformers>=4.40
+accelerate>=0.30
+safetensors
+
+# --- Plan listesindeydi, KODA HIC GIRMEDI (26 Agustos import taramasi) ---
+# Gerceklik olcumu su an species_check.py'nin kendi olcutleriyle yapiliyor.
+# Faz 8'de FID/LPIPS eklenirse burasi acilir ve karar decisions.md'ye yazilir.
 # clean-fid                # FID / KID
 # lpips                    # LPIPS
 
