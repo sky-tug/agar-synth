@@ -121,14 +121,30 @@ def fill_preds_from_model(images, data: Path, weights: str, imgsz: int,
     model = YOLO(weights)
     paths = [str(image_path_of(data, im.stem)) for im in images]
 
+    # Ultralytics 8.4 deprecated `half` in favour of `quantize` and prints a
+    # warning EVERY time the kwarg is passed -- once per chunk, so ~75 identical
+    # lines for a 640-image split. It looks like a crash and invites a Ctrl+C on
+    # a run that is perfectly healthy. The kwarg is now only passed when it was
+    # actually asked for, which is the default-off path for the whole grid.
+    pred_kw = dict(imgsz=imgsz, conf=MIN_CONF, iou=nms_iou, max_det=max_det,
+                   device=device, verbose=False, stream=False)
+    if half:
+        pred_kw["half"] = True
+
+    n_chunks = (len(paths) + batch - 1) // batch
+    print(f"inference: {len(paths)} images, batch {batch} -> {n_chunks} chunks")
+
     t0 = time.perf_counter()
     boxes_all = []
     for i in range(0, len(paths), batch):
         chunk = paths[i:i + batch]
-        res = model.predict(chunk, imgsz=imgsz, conf=MIN_CONF, iou=nms_iou,
-                            max_det=max_det, device=device, half=half,
-                            verbose=False, stream=False)
+        res = model.predict(chunk, **pred_kw)
         boxes_all.extend(res)
+        # A silent run is indistinguishable from a hung one. Show progress.
+        done = min(i + batch, len(paths))
+        print(f"\r  {done}/{len(paths)}  "
+              f"({done / len(paths) * 100:5.1f}%)", end="", flush=True)
+    print()
     infer_s = time.perf_counter() - t0
 
     # Predictions are matched to images BY PATH, not BY POSITION.

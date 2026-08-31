@@ -124,8 +124,11 @@ def main():
     ap.add_argument("--imgsz", type=int, help="imgsz to be used in the grid")
     ap.add_argument("--measured-imgsz", type=int, help="imgsz the measurement was made at")
     ap.add_argument("--full-size", type=int, default=None,
-                    help="full AGAR countable+lower-res image count. "
-                         "If the measurement was made on a subset, it is scaled from here.")
+                    help="TRAINING image count of a G100 run -- NOT the size of the "
+                         "whole data set. On the 26 Aug data that is 2987 (the train "
+                         "split), not 4267 (train+val+test). Every arm's data share "
+                         "(1.0 / 0.5 / 0.25 / 0.1) is a share of THIS number. "
+                         "Only needed when the measurement itself was made on a subset.")
     ap.add_argument("--budget", type=float, help="GPU-hours you have")
     ap.add_argument("--arms", default=",".join(DEFAULT_ARMS),
                     help="comma separated. default (JESD scope): "
@@ -187,6 +190,19 @@ def main():
     measured_imgsz = args.measured_imgsz or measured_imgsz
     n_full = args.full_size or n_measured
 
+    # Decision 3.78: --full-size was documented as "the AGAR countable+lower-res
+    # count" (4267) but it is used as the TRAINING size of a full run (2987).
+    # Passing the whole data set inflates every number by 43% and the output
+    # looks perfectly reasonable. A wrong budget is worse than no budget, so a
+    # value well above the measured training size is now called out loudly.
+    if args.full_size and n_measured and args.full_size > n_measured * 1.10:
+        print()
+        print("  [!] --full-size (%d) is %.0f%% ABOVE the measured training size (%d)."
+              % (args.full_size, (args.full_size / n_measured - 1) * 100, n_measured))
+        print("      --full-size is the TRAINING image count of a G100 run.")
+        print("      If you passed train+val+test, every number below is inflated.")
+        print()
+
     # the seconds of one run at "full data size"
     s_per_img_epoch = epoch_s / max(n_measured, 1)
     imgsz_factor = (imgsz / measured_imgsz) ** 2
@@ -198,7 +214,7 @@ def main():
     print(f"measurement source   : {source}")
     print(f"measured             : {n_measured} images, {epoch_s:.1f} s/epoch, "
           f"imgsz {measured_imgsz}")
-    print(f"grid assumption      : {n_full} images (full data), {args.epochs} epochs, "
+    print(f"grid assumption      : {n_full} TRAINING images, {args.epochs} epochs, "
           f"imgsz {imgsz}")
     if imgsz_factor != 1:
         print(f"imgsz scaling        : x{imgsz_factor:.2f}  "

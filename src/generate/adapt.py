@@ -96,7 +96,23 @@ def extract_crops(list_file: Path, labels_dir: Path, images_dir: Path,
     stems = [Path(l).stem for l in list_file.read_text(encoding="utf-8").split() if l.strip()]
     records, skipped_big, per_species = [], 0, {}
 
-    for stem in stems:
+    # Decision 3.83: this loop reads a 2048x2048 JPEG and writes ~19 crop pairs
+    # per plate. Over the 2987-plate train split that is ~57k crops and roughly
+    # an hour, and the previous version printed NOTHING until it finished. Twice
+    # in a row it was mistaken for a hang and killed -- and because
+    # metadata.jsonl is only written at the very end, everything on disk was
+    # then useless. A silent long-running loop is a bug in its own right.
+    n_plates = len(stems)
+    print(f"[crops] {n_plates} plates -> {out_dir}")
+    t_start = time.perf_counter()
+
+    for pi, stem in enumerate(stems, 1):
+        if pi % 25 == 0 or pi == n_plates:
+            el = time.perf_counter() - t_start
+            eta = el / pi * (n_plates - pi)
+            print(f"\r  plate {pi}/{n_plates}  ({pi/n_plates*100:5.1f}%)  "
+                  f"crops {len(records)}  elapsed {el/60:.1f} min  "
+                  f"eta {eta/60:.1f} min", end="", flush=True)
         colonies = read_labels(stem, labels_dir, classes)
         if not colonies:
             continue
@@ -199,6 +215,7 @@ def extract_crops(list_file: Path, labels_dir: Path, images_dir: Path,
                         "mask_fraction": round(float((m > 0).mean()), 5)})
         made += 1
 
+    print()
     (out_dir / "metadata.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n",
         encoding="utf-8")

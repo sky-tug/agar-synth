@@ -9,6 +9,19 @@ wandb/
 *.pt
 *.zip
 
+# --- FAZ 3 URETIM ARA CIKTILARI (26 Agustos) ---
+# Bunlar git'te DEGILDI ama .gitignore'da da yoktu -> demo doneminde sessizce
+# commit'lendiler (crops_100 icinde ~700 PNG, lora_100 icinde safetensors).
+# Tam veride 4 seviye x binlerce kirpma olacak; depoyu sisirmeden once kapatiliyor.
+src/generate/crops_*/
+src/generate/lora_*/*.safetensors
+src/generate/lora_*/*.bin
+# AMA kucuk ve YENIDEN URETILEMEZ olanlar git'e GIRIYOR:
+#   layout_<seviye>.json   fit edilmis yerlesim dagilimi   (birkac KB)
+#   bg_pool_<seviye>.json  arka plan havuzu secimi         (birkac KB)
+#   lora_*/adapter_config.json + adapt_metrics.json + README.md
+# Bunlar makalenin yeniden uretilebilirlik kaydi -- silinmemeli.
+
 # --- SANAL ORTAMLAR -- git'e ASLA girmemeli (birkac GB) ---
 .venv/
 src/.venv/

@@ -90,12 +90,34 @@ class Tile:
 
 
 def colony_boxes(colonies, W: int, H: int, pad: int = CONTEXT_PAD):
-    """Pixel-space (x0, y0, x1, y1) of each colony disk, plus context padding."""
+    """
+    Pixel-space (x0, y0, x1, y1) of each colony disk, plus context padding,
+    CLAMPED TO THE IMAGE.
+
+    Decision 3.82. The clamp is not cosmetic. For a colony near the plate rim the
+    context padding pushes the window past the image border:
+
+        centre x = 72 px, a 367 px P.aeruginosa (r = 183), pad = 24
+        -> x0 = 72 - 183 - 24 = -135
+
+    Every tile place_tiles() can open is itself clamped to the image, so no tile
+    can ever contain a box that starts at -135. The colony becomes uncoverable
+    and place_tiles() aborts the whole run rather than drop it (decision 3.22).
+
+    Pixels outside the image do not exist and do not need to be covered, so the
+    box is intersected with the image here. The colony ITSELF is still covered
+    whole -- only the padding is trimmed, and only on the side that ran off.
+
+    The 10-plate demo package had no colony close enough to the rim for this to
+    fire. It appeared on the first run over the full 2987-plate train split.
+    """
     out = []
     for k in colonies:
         r = k["diameter"] / 2 * W + pad
-        out.append((k["xc"] * W - r, k["yc"] * H - r,
-                    k["xc"] * W + r, k["yc"] * H + r))
+        x0, y0 = k["xc"] * W - r, k["yc"] * H - r
+        x1, y1 = k["xc"] * W + r, k["yc"] * H + r
+        out.append((max(0.0, x0), max(0.0, y0),
+                    min(float(W), x1), min(float(H), y1)))
     return out
 
 
