@@ -1,0 +1,14 @@
+{
+  "level": 100,
+  "n_crops": 33041,
+  "steps": 1500,
+  "rank": 16,
+  "lr": 0.0001,
+  "batch": 1,
+  "base_model": "runwayml/stable-diffusion-inpainting",
+  "eval_loss_start": 0.025362,
+  "eval_loss_end": 0.02449,
+  "source_list": "data/processed/lists/train.txt",
+  "hours": 0.509,
+  "peak_vram_gb": 5.654
+}

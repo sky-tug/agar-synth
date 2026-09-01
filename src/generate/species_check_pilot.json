@@ -1,0 +1,146 @@
+{
+  "level": 100,
+  "real_list": "data/processed/lists/train.txt",
+  "generated": {
+    "E.coli": {
+      "yellowness": 46.8542231811597,
+      "contrast": 48.68694711001098,
+      "texture": 15.57396125793457,
+      "n": 870,
+      "diameter": 124.5
+    },
+    "S.aureus": {
+      "yellowness": 87.47448015122872,
+      "contrast": 105.81072555205049,
+      "texture": 39.0847282409668,
+      "n": 599,
+      "diameter": 35.0
+    },
+    "C.albicans": {
+      "yellowness": 53.181490102672356,
+      "contrast": 118.63224077509791,
+      "texture": 41.092681884765625,
+      "n": 238,
+      "diameter": 35.5
+    },
+    "P.aeruginosa": {
+      "yellowness": 46.84330235101149,
+      "contrast": 48.82171079994454,
+      "texture": 19.22951889038086,
+      "n": 435,
+      "diameter": 129.0
+    },
+    "B.subtilis": {
+      "yellowness": 45.446019302293244,
+      "contrast": 42.5011124916801,
+      "texture": 21.117287635803223,
+      "n": 50,
+      "diameter": 135.5
+    }
+  },
+  "inner_disc": 0.35,
+  "min_n": 15,
+  "real": {
+    "E.coli": {
+      "yellowness": 44.97023431474298,
+      "contrast": 25.93570213448885,
+      "texture": 5.377588272094727,
+      "n": 19178,
+      "diameter": 128.0
+    },
+    "C.albicans": {
+      "yellowness": 59.49592169657423,
+      "contrast": 97.03854875283446,
+      "texture": 24.19039535522461,
+      "n": 8051,
+      "diameter": 36.0
+    },
+    "P.aeruginosa": {
+      "yellowness": 39.010547263681595,
+      "contrast": 20.300602623183266,
+      "texture": 5.633944511413574,
+      "n": 11409,
+      "diameter": 127.0
+    },
+    "S.aureus": {
+      "yellowness": 88.8102766798419,
+      "contrast": 66.74250832408435,
+      "texture": 11.579309463500977,
+      "n": 15971,
+      "diameter": 35.0
+    },
+    "B.subtilis": {
+      "yellowness": 29.626962528783757,
+      "contrast": 17.219606920089447,
+      "texture": 8.059511184692383,
+      "n": 2993,
+      "diameter": 137.0
+    }
+  },
+  "ordering": {
+    "classes": [
+      "B.subtilis",
+      "C.albicans",
+      "E.coli",
+      "P.aeruginosa",
+      "S.aureus"
+    ],
+    "yellowness": 1.0,
+    "contrast": 0.9,
+    "texture": 1.0
+  },
+  "separability": {
+    "real": 0.3738192832497264,
+    "real_ci90": [
+      0.34266288925542693,
+      0.40667498173730415
+    ],
+    "real_plates": 2987,
+    "generated": 0.1064698469625984,
+    "generated_ci90": [
+      0.04826429398136928,
+      0.21186219393317168
+    ],
+    "generated_plates": 100,
+    "real_no_texture": 0.6870950222310341,
+    "generated_no_texture": 0.02792261718688533
+  },
+  "flagged": [
+    {
+      "cls": "B.subtilis",
+      "stat": "contrast",
+      "ratio": 2.47
+    },
+    {
+      "cls": "B.subtilis",
+      "stat": "texture",
+      "ratio": 2.62
+    },
+    {
+      "cls": "E.coli",
+      "stat": "texture",
+      "ratio": 2.9
+    },
+    {
+      "cls": "P.aeruginosa",
+      "stat": "contrast",
+      "ratio": 2.4
+    },
+    {
+      "cls": "P.aeruginosa",
+      "stat": "texture",
+      "ratio": 3.41
+    },
+    {
+      "cls": "S.aureus",
+      "stat": "texture",
+      "ratio": 3.38
+    }
+  ],
+  "counters": {
+    "missing_image": 0,
+    "missing_label": 0,
+    "clipped": 0,
+    "too_small": 584
+  }
+}

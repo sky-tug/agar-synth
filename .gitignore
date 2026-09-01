@@ -41,3 +41,15 @@ out.txt
 reports_ozet.txt
 *.log
 .DS_Store
+
+# Model agirligi bu repoda HICBIR YERDE durmaz (1 Eylul).
+# Onceki kural src/generate/lora_*/*.safetensors idi ve yalnizca tek seviye
+# esliyordu; ara kontrol noktalari lora_*/step_*/ altinda kaliyor ve sizmisti.
+*.safetensors
+
+# --- FAZ 4 PILOT ARA CIKTILARI (1 Eylul) ---
+# Hepsi layout_<seviye>.json + bg_pool_<seviye>.json + lora_<seviye>/ ile
+# YENIDEN URETILEBILIR. Tam boy goruntu git'e girmez.
+src/generate/plans_*/
+src/generate/build_*/
+src/generate/synth_*/
