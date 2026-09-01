@@ -208,9 +208,15 @@ def build(args):
                 overflow += 1
 
         cv2.imwrite(str(C / "masks" / f"{name}.png"), combined)
-        if args.split_masks:
-            cv2.imwrite(str(C / "masks" / f"{name}_synthetic.png"), synth)
-            cv2.imwrite(str(C / "masks" / f"{name}_erase.png"), erase)
+        # Decision 3.85: the split masks are ALWAYS written. They are not a
+        # debugging extra -- inpaint.py's two-pass generation (decision 3.60)
+        # cannot run without them, and the combined mask alone reintroduces the
+        # unlabelled ghost colonies that erasing exists to prevent. They used to
+        # sit behind --split-masks, whose help text called them "for visual
+        # checking"; a flag described as optional but required by the main line
+        # is a trap, and it sprang on the first pilot run.
+        cv2.imwrite(str(C / "masks" / f"{name}_synthetic.png"), synth)
+        cv2.imwrite(str(C / "masks" / f"{name}_erase.png"), erase)
         cv2.imwrite(str(C / "backgrounds" / f"{name}.jpg"), img, [cv2.IMWRITE_JPEG_QUALITY, 96])
         shutil.copy(Path(args.plans) / "labels" / f"{name}.txt", C / "labels" / f"{name}.txt")
         (C / "provenance" / f"{name}.json").write_text(json.dumps(dict(
@@ -267,7 +273,10 @@ def main():
     p.add_argument("--images", default="data/processed/images")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--split-masks", action="store_true",
-                   help="also write the synthetic and erase masks separately (for visual checking)")
+                   help="DEPRECATED and ignored (decision 3.85). The synthetic and "
+                        "erase masks are now written unconditionally, because "
+                        "inpaint.py REQUIRES them. Accepted so existing commands "
+                        "and notes keep working.")
     p.add_argument("--out", required=True)
     p.set_defaults(fn=build)
 

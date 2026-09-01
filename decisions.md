@@ -833,3 +833,226 @@ Sirada: LoRA'yi boyut-kosullu egitmek (adapt.py'de kirpma olcegini koloni
 boyutuna gore degistirmek) — ama bu **tam veri gerektiriyor**, cunku demo
 pakette tur basina birkac duzine ornek var. Yani Faz 4'un bu kolu da artik
 veriye bagli.
+
+---
+
+## Faz 4 — tam veri uzerinde pilot (26 Agustos – 1 Eylul)
+
+Demo paketi 10 plakti. Bu bolumdeki her sayi 2987 plaklik gercek train
+bolunmesinden geliyor. Demo'dan tasinan tahminlerin **ucu birden yanlis cikti**
+(degme orani, sayim dagilimi, karo basina sure) — hicbiri kotu niyetli degildi,
+hepsi "10 ornekten kestirilen sayi, sayi degildir"in ayri ayri kanitlari.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.81 | **Arka plan havuzunun tur yanliligi KABUL EDILDI, esik gevsetilmeyecek.** Maksimum sapma 0,13 (kapi 0,15); `B.subtilis` havuzda **%0**. `A2_background` ablasyonu bunun onemli olup olmadigini olcecek. | `erase_ratio <= 0,06` esigi alana bakiyor, alan boyuta, boyut sinifa. `B.subtilis` 137 px medyan capla ve plak basina ~46 koloniyle esigi hicbir zaman gecemiyor. Esigi gevsetmek havuzu dengelerdi ama silinemeyen gercek kolonileri geri getirirdi: hayalet koloni sayisi 23/35'ten 0/29'a bu esikle dusmustu. **Etiketsiz nesne, dengesiz havuzdan daha pahali bir hata.** Yanlilik olculdu, yazildi, ablasyona birakildi. |
+| 3.82 | **`tiles.colony_boxes` baglam dolgusunu goruntuye KIRPIYOR.** | Plak kenarindaki bir koloni icin dolgu kutuyu goruntunun disina tasiyordu: merkez x = 72 px, 367 px'lik bir `P.aeruginosa` (r = 183), pad = 24 → x0 = −135. `place_tiles`'in acabilecegi her karo zaten goruntuye kirpili, dolayisiyla −135'te baslayan bir kutuyu hicbir karo kapsayamaz; koloni "kapsanamaz" hale gelip tum kosuyu durduruyordu. **Kod dogru davraniyordu** — karar 3.22 geregi koloniyi sessizce dusurmek yerine durdu. Goruntu disindaki pikseller yok, kapsanmalari da gerekmiyor: kutu goruntuyle kesistiriliyor. Koloninin KENDISI hala butun kapsaniyor, sadece dolgu, sadece tastigi taraftan kirpiliyor. 10 plaklik demo'da kenara bu kadar yakin koloni yoktu. |
+| 3.83 | **`adapt.py crops` ilerleme ve ETA basiyor. Sessiz uzun dongu basli basina bir hatadir.** | Dongu 2987 plagi okuyup ~33.000 kirpma yaziyor ve onceki surum bitene kadar HICBIR SEY basmiyordu. Iki kez askida sanilip oldurustuldu — ve `metadata.jsonl` yalnizca en sonda yazildigi icin her seferinde diskteki her sey ise yaramaz hale geldi. Bir kullanicinin "calisiyor mu, dondu mu" sorusunu cevaplayamayan program, dogru sonucu uretse bile calismiyor demektir. |
+| 3.84 | **Koloni sayisi dagilimi lognormal DEGIL. Ampirik histograma gecildi. `validate` tablosuna ORTALAMA satiri eklendi. 3.17 yerini bu karara birakti.** | Ayrintili gerekce asagida. |
+| 3.85 | **Bolunmus maskeler (`_synthetic` + `_erase`) HER ZAMAN yaziliyor; `inpaint.py` onlar yoksa DURUYOR.** Tek gecisli davranis yalnizca `--allow-combined-mask` ile, bilincli olarak secilebiliyor. | Bolunmus maskeler `--split-masks` bayraginin arkasindaydi ve bayrak "for visual checking" diye tanitiliyordu. Oysa karar 3.60'in iki gecisli uretimi onlarsiz calisamiyor. `inpaint.py` bir kez uyarip birlesik maskeyle devam ediyordu: kosu basarili gorunuyor, 100 plagin tamami yaziliyor ve her birinde silme bolgesine boyanmis **etiketsiz koloni** olabiliyor — kararlar 3.25 ve 3.60'in var olma sebebi. **Ana hat icin zorunlu olan bir bayragi istege bagli diye tanitmak tuzaktir**, ve 20 dakikalik logun tepesinde kaybolan bir uyari kimseyi korumaz. Ilk pilot kosusunda tuzak islevini gordu. |
+
+### 3.84 — sayim dagilimi: neden bu kadar onemliydi
+
+**Belirti.** `layout.py fit` medyani birebir tutturuyordu, ortalamayi tutturmuyordu:
+
+| | medyan | ortalama | p99 | max |
+|---|---|---|---|---|
+| gercek (2987 plak) | 13 | **19,47** | 78 | 225 |
+| uretilen | 12–14 | **27,6** | 225 | 225 |
+
+**Kok sebep.** Uyum su iki satirdi:
+
+```
+ln_loc = median(ln n)      <- aykiri degere karsi BILEREK dayanikli
+ln_std = std(ln n)         <- dayaniksiz
+```
+
+Ustlerindeki yorum satiri tehlikeyi adiyla yaziyordu ("tek bir kalabalik plak
+ortalamayi etkiler") ve ciftin yalnizca yarisini savunuyordu. Lognormalde
+ortalama sigmaya **ustel** baglidir (`ortalama/medyan = exp(sigma^2/2)`), yani
+biraz buyuk bir sigma medyani hic bozmadan ortalamayi cok sisirir. Gozlenen imza
+tam olarak buydu.
+
+**Ilk hipotezim yanlis cikti.** "Dayanikli bir sigma tahmincisi kullanalim"
+dedim; `08_count_distribution.py` bunu **oldurdu**:
+
+| tahminci | sigma | uretilen ortalama (gercek 19,47) |
+|---|---|---|
+| `std(ln n)` — eski | 1,273 | 27,05 (+%38,9) |
+| `IQR(ln n)/1,349` — "dayanikli" | 1,542 | 33,55 (+%72,3) |
+| gercek ortalamanin ima ettigi | 0,899 | 19,47 |
+
+Ayni parametrenin uc tahmini bu kadar ayrisiyorsa sorun tahminci degil,
+**ailenin kendisidir.** `ln(n)`'in normal-kuantil tablosu ayni seyi soyluyor:
+alt kuyruk normalden **sisman** (`ln(1) = 0`'da taban var, bir suru 1-5 kolonili
+plak), ust kuyruk cok **basik** (p99'da z = 1,41, normal 2,33 ister). Lognormal
+iki yone de serbest uzanir; bu dagilim uzanmiyor.
+
+*(Henuz dogrulanmamis hipotez: ust kuyrugu AGAR'in kendi tanimi kesiyor —
+300+ koloni "uncountable" sayilip veri setinden cikarilmis. Yani budama
+biyolojik degil idari olabilir. Makale icin ilginc, ama su an sadece hipotez.)*
+
+**Neden ampirik histogram, neden ters-CDF degil.** `radial` ve `size` kuantil
+izgarasini ara deger hesaplayarak orneklemekte, ilk refleks ayni seyi yapmakti.
+Olculdu: %6,7 sapiyor (ortalama 20,77). Sebep, ara deger hesabinin **surekli**
+buyuklukler icin dogru arac olmasi; sayim ise **tam sayi**. p99 = 78 ile
+p100 = 225 arasinda dogrusal ara deger, gercek verinin neredeyse hic kutlesi
+olmayan bir araliga sahte kutle serpiyor. Histogram medyani, ortalamayi, her
+kuantili ve araligi **tanim geregi** veriyor ve ayarlanacak izgarasi yok.
+
+**Neden ortalama, medyandan onemli.** Ikame egrisi "N gercek goruntu" ile
+"N sentetik goruntu"yu karsilastiriyor. Sentetik goruntu basina %42 fazla
+etiketli nesne olsaydi, sentetik kol goruntu basina daha cok denetim alirdi ve
+egri **sentetigin lehine** saperdi — tezin kendi iddiasi, bozuk cetvelle
+olculmus olurdu.
+
+**Ve asil ders: kapinin kendisi denetlenmemisti.** `layout.py validate` medyani
+kontrol ediyordu, ortalamayi kontrol etmiyordu. Hata veriye degil, **kontrolun
+kor noktasina** yerlesmisti. Uc tasarim ilkesine dorduncusu ekleniyor:
+
+> **Bir kapinin neyi olcmedigi, neyi olctugu kadar onemlidir.**
+
+`inpaint` calismadan once yakalandi; kayip sifir.
+
+### gamma artik atil — 3.19'un durumu
+
+Sayim duzeltilince degme orani `gamma = 1` (saf rastgele yerlestirme) ile %31,5
+cikti; gercek %32,7, CI90 [31,5–33,9]. Yani **bastirilacak fazlalik kalmadi.**
+
+Eski durum iki hatanin birbirini goturmesiydi: %42 fazla koloni + gamma ile
+yapay bastirma (0,481). Simdi yogunluk dogru ve degme orani *uydurulmus* degil
+*kendiliginden cikan* bir sayi — bir serbest parametre azaldi. Bilimsel olarak
+daha temiz, ama gizlenmemesi gereken bir degisiklik.
+
+**Hipotez (olculmedi):** eksik 1,2 puan `MAX_OVERLAP = 0,63` kirpmasindan
+geliyor olabilir. Gercek veride ortusme derinligi 1,00'e (tam ic ice) kadar
+cikiyor ve ic ice koloniler de "degme" sayiliyor.
+
+### Kalan sapma: dis halka −%23
+
+`validate`'te tek acik kalan satir. Gercekte kolonilerin %5,33'u dis %20'lik
+alanda, uretilende %4,11. Muhtemel mekanizma: kenardaki buyuk kolonilerin plak
+dairesine sigmayip iceri itilmesi. Mutlak fark 1,2 puan. Staj penceresinde
+duzeltilmiyor, **sinirlik olarak raporlanacak.**
+
+---
+
+## Olculen sayilar — 1 Eylul
+
+Hepsi tam veri uzerinde, hicbiri tahmin.
+
+### LoRA (`lora_100`)
+
+```
+33.041 kirpma · 1500 adim · rank 16 · lr 1e-4 · batch 1
+eval loss (sabit kirpma + sabit timestep)   0,02536 -> 0,02449   (-%3,4)
+  adim  500  0,02468      adim 1000  0,02458      adim 1500  0,02449
+sure 0,509 GPU-saat · tepe VRAM 5,654 GB
+LoRA baglanma kaniti (3.63): 256 tensor birlesti, max |delta| = 0,00464
+```
+
+Ilk 500 adim toplam iyilesmenin %78'ini yapti; egri duzlesti.
+**Buradan "1500 adim yeterli" sonucunu cikardim ve bu cikarim yanlisti** —
+asagiya bakiniz.
+
+### Karo ve uretim maliyeti — eski sayinin ikisi de yanlismis
+
+| | demo varsayimi | **olcum** |
+|---|---|---|
+| karo / goruntu | 19,0 | **10,06** |
+| saniye / karo | ~0,34 | **0,959** (p95 0,998) |
+| saniye / goruntu | — | **10,41** |
+| tepe VRAM | — | **2,889 GB** |
+| 58.200 goruntu | 105 GPU-sa | **156 GPU-sa** |
+
+Karo sayisi yariya indi, karo basina sure 2,8 kat cikti; net etki **+%49**.
+Ara asamada yalnizca karo sayisini duzeltip "uretim %52 ucuzladi" denmisti;
+bu iddia **yanlisti** ve burada duzeltiliyor. Bir carpimin bir carpanini
+olcup digerini varsayimda birakmak, hic olcmemekten daha yaniltici.
+
+**Guncel butce:**
+
+```
+①  150 epoch (ust sinir)   284,7 + 156 = 441 GPU-sa
+②  86 epoch (gercekci)     163,2 + 156 = 319 GPU-sa
+kiralik 4090'da ② ≈ 106 saat · ~$29 · 4 kartta ~27 saat
+```
+
+**Firsat notu:** tepe VRAM 2,889 GB. 24 GB'lik bir kartta karolar toplu
+islenebilir; su an teker teker gidiyor. Faz 6'da 156 saati ciddi dusurur.
+
+---
+
+## Faz 4'un kapisi — 1 Eylul, ILK GERCEK OLCUM
+
+100 sentetik plak · 2192 olculebilir koloni · `species_check.py`
+
+### Kapi 1: doku orani < 2 — GECILEMEDI
+
+| tur | gercek -> sentetik | oran |
+|---|---|---|
+| C.albicans | 24,2 -> 41,1 | ×1,70 ✓ |
+| B.subtilis | 8,1 -> 21,1 | ×2,62 ✗ |
+| E.coli | 5,4 -> 15,6 | ×2,90 ✗ |
+| S.aureus | 11,6 -> 39,1 | ×3,38 ✗ |
+| P.aeruginosa | 5,6 -> 19,2 | ×3,41 ✗ |
+
+**Demo'da 3–8 idi, simdi 1,7–3,4.** Gercek ilerleme, ama kapi 1/5 gecti.
+
+### Kapi 2: dokusuz ayrilabilirlik — AGIR GECILEMEDI
+
+```
+uc eksenle (renk + kontrast + doku)   gercek 0,37  -> sentetik 0,11   %28
+doku ekseni CIKARILINCA               gercek 0,69  -> sentetik 0,03   %4
+```
+
+**Asil bulgu bu ve doku oranindan daha ciddi.** Uretilen koloniler tur tur
+birbirinden ayrilmiyor. Siralama dogru (Spearman: sarilik +1,00, doku +1,00,
+kontrast +0,90 — "E.coli S.aureus'tan saridir" biliniyor) ama aradaki mesafe
+cokmus. Model her ture asagi yukari ayni koloniyi ciziyor.
+
+Yani: **sentetik veride sinif sinyali neredeyse yalnizca doku artefaktinda
+yasiyor.** Karar 3.67'nin kestirme-ipucu korkusunun olculmus hali.
+
+*(Demo'daki %27 rakami 10 plaktan geliyordu, guven araligi cok genisti.
+"Kotulesti" DENMIYOR — o sayi zaten guvenilir degildi. Bugunku %4, 100 plaktan.)*
+
+*(Sentetik kolonilerin %21'i (584 adet) olculemeyecek kadar kucuk cikti. Bu
+sayilar buyuk turlere dogru egimli.)*
+
+### Kendi cikarimimin duzeltilmesi
+
+Sabah "eval loss duzlesti, 1500 adim yeter" demistim. **Eval loss yeniden kurma
+hatasini olcuyor, tur ayrimini olcmuyor.** Duzlesmis bir yeniden kurma egrisi,
+sinif kanalinin doydugu anlamina gelmez. Iki farkli seyi ayni sayidan okumaya
+calistim.
+
+### Test edilen hipotez (1 Eylul aksami baslatildi)
+
+```
+prompt turu adiyla soyluyor      "macro photograph of S.aureus bacterial colonies..."
+adapt.py ayni sablonla egitiyor   species_prompt inpaint.py'den import ediliyor
+AMA CLIP "S.aureus" ile "P.aeruginosa"yi gorsel olarak tanimiyor
+-> bu ayrimi UNet LoRA'sinin sifirdan ogrenmesi gerekiyor
+-> LoRA'nin toplam etkisi max |delta| = 0,0046, eval loss -%3,4  = cok hafif dokunus
+```
+
+**Deney:** tek degisken, yalnizca adim sayisi. rank/lr/kirpma havuzu/seed ayni.
+1500 -> 6000 adim, her 1500 adimda kontrol noktasi (karar 3.62 tam bunun icin).
+Tek kosudan bir egri cikacak:
+
+| adim | doku orani | dokusuz ayrilabilirlik |
+|---|---|---|
+| 1500 | ×1,7–3,4 | %4 |
+| 3000 | ? | ? |
+| 4500 | ? | ? |
+| 6000 | ? | ? |
+
+**Nasil okunacak:**
+- ayrilabilirlik adimla **yukseliyorsa** -> LoRA az egitilmisti; makaleye
+  "sinif kanali N adim ister" diye olculmus bir cumle girer
+- **duz kaliyorsa** -> sorun egitim suresi degil, kosullandirmanin kendisi;
+  daha guclu bir sinirlilik argumani olur
+
+Ikisi de kullanilabilir sonuc. Bedava dogrulama: seed ayni, bu kosunun 1500.
+adimi bugunku `lora_100` ile birebir ayni cikmali.

@@ -20,7 +20,9 @@ Related decisions (decisions.md):
   3.13  mask circular, label box square
   3.14  size is per class
   3.16  one dominant species + a small number of secondary species
-  3.17  count is lognormal
+  3.17  count is lognormal            -- SUPERSEDED by 3.84
+  3.84  count is drawn from the EMPIRICAL histogram; the lognormal family was
+        chosen on the 10-plate demo and does not hold on the full data
   3.18  --naive = ablation A3
   3.19  Strauss interaction parameter gamma, auto-calibrated to the real touching rate
 """
@@ -92,6 +94,76 @@ def _touching_ci(plates, seed=7, B=2000):
     return float(np.percentile(v, 5)), float(np.percentile(v, 95))
 
 
+def _count_histogram(ns) -> dict:
+    """
+    The colony-count distribution, stored as the exact empirical histogram
+    (decision 3.84).
+
+    WHAT THIS REPLACES
+    ------------------
+    Until 3.84 the count was a lognormal fitted as
+
+        ln_loc = median(ln n)      <- deliberately ROBUST to one crowded plate
+        ln_std = std(ln n)         <- NOT robust
+
+    The comment above those two lines named the danger and then defended only
+    half of the pair. On the full 2987-plate train split the consequence was
+    measurable: the median came out exactly right (13) and the mean came out at
+    27.6 against a real 19.47 -- +42%. In a lognormal the mean depends on sigma
+    EXPONENTIALLY (mean/median = exp(sigma^2/2)), so a sigma that is somewhat too
+    large leaves the median untouched and inflates the mean a great deal. That is
+    exactly the signature that was observed.
+
+    WHY NOT JUST A ROBUST SIGMA
+    ---------------------------
+    That was the first hypothesis and 08_count_distribution.py killed it. The
+    robust estimator is WORSE, because the distribution's middle is very wide:
+
+        estimator                          sigma    generated mean (real 19.47)
+        std(ln n)          -- old           1.273        27.05   +38.9%
+        IQR(ln n) / 1.349  -- "robust"      1.542        33.55   +72.3%
+        implied by the real mean            0.899        19.47        --
+
+    Three estimates of the same parameter that disagree this much mean the FAMILY
+    is wrong, not the estimator. The normal-quantile table of ln(n) says the same
+    thing: the lower tail is fatter than normal (a floor at ln(1) = 0, many plates
+    with 1-5 colonies) and the upper tail is much thinner (z = 1.41 at p99 where a
+    normal wants 2.33). Lognormal reaches freely in both directions; this does not.
+
+    WHY THE EMPIRICAL HISTOGRAM AND NOT AN INVERSE-CDF
+    --------------------------------------------------
+    `radial` and `size` sample by interpolating a quantile grid, and the obvious
+    move was to do the same here. Measured, it overshoots by 6.7% (mean 20.77).
+    The reason is that interpolation is the right tool for a CONTINUOUS quantity
+    and the count is an INTEGER: linear interpolation between p99 = 78 and
+    p100 = 225 sprinkles fictitious mass across a range where the real data has
+    almost none. The histogram reproduces the median, the mean, every quantile and
+    the range BY CONSTRUCTION, and has no grid to tune.
+
+    WHY THE MEAN IS THE NUMBER THAT MATTERS
+    ---------------------------------------
+    The substitution curve compares "N real images" against "N synthetic images".
+    If a synthetic image carries 42% more labelled objects than a real one, the
+    synthetic arm gets more supervision per image and the curve is biased IN
+    FAVOUR OF SYNTHETIC DATA -- the paper's own claim, measured with a loaded
+    ruler. `validate` reported only the median, which is why this survived; the
+    mean row added in 3.84 is the other half of that fix.
+
+    Frequencies are stored as INTEGER counts, not as normalised weights: they stay
+    readable in the JSON ("this many plates carried this many colonies") and no
+    rounding can make the probabilities fail to sum to one.
+    """
+    values, freq = np.unique(np.asarray(ns, dtype=int), return_counts=True)
+    return {
+        "values": [int(v) for v in values],
+        "counts": [int(c) for c in freq],
+        "min": int(values.min()), "max": int(values.max()),
+        # recorded so a later reader can check the sampler without the labels
+        "median": float(np.median(ns)), "mean": float(np.mean(ns)),
+        "n_plates": int(len(ns)),
+    }
+
+
 def _calibrate_gamma(params, target, seed=12345):
     """Fit gamma to the real touching rate via binary search (decision 3.19).
 
@@ -141,9 +213,8 @@ def fit(args):
             size_by_class.setdefault(k["cls"], []).append((k["w"] + k["h"]) / 2)
     r_norm = np.clip(np.array(r_norm), 0, 1.0)
 
-    # --- count (decision 3.17) ---------------------------------------------
+    # --- count (decision 3.17, superseded by 3.84) --------------------------
     ns = np.array(counts, dtype=float)
-    ln = np.log(ns)
 
     params = {
         "level": args.level,
@@ -156,11 +227,8 @@ def fit(args):
         },
         "plate": {"r_ratio": PLATE_R_RATIO, "center": [cx, cy]},
         "radial": {"q": QUANTILES, "values": [float(np.percentile(r_norm, q)) for q in QUANTILES]},
-        # lognormal median = exp(mu). The MEDIAN of ln(n) is used for mu:
-        # with few plates the mean is affected by a single crowded plate (n=125).
-        "count": {"family": "lognormal", "ln_loc": float(np.median(ln)),
-                  "ln_std": float(ln.std(ddof=1)) if len(ln) > 1 else 0.3,
-                  "min": int(ns.min()), "max": int(ns.max())},
+        # decision 3.84 -- see _count_histogram() for why this is not a lognormal
+        "count": {"family": "empirical", **_count_histogram(ns)},
         "size": {s: {"q": QUANTILES, "values": [float(np.percentile(v, q)) for q in QUANTILES],
                      "n": len(v)}
                  for s, v in sorted(size_by_class.items())},
@@ -184,7 +252,11 @@ def fit(args):
     out.write_text(json.dumps(params, indent=2, ensure_ascii=False))
 
     print(f"[fit] level={args.level}  {len(plates)} plates / {len(r_norm)} colonies")
-    print(f"      count: median {np.median(ns):.0f}  range {ns.min():.0f}-{ns.max():.0f}")
+    # the MEAN is printed next to the median on purpose (decision 3.84): the
+    # median alone is what let a +42% count inflation through unnoticed.
+    print(f"      count: median {np.median(ns):.0f}  mean {ns.mean():.2f}  "
+          f"range {ns.min():.0f}-{ns.max():.0f}  "
+          f"({len(params['count']['values'])} distinct values, empirical)")
     print(f"      radial median r/R = {np.median(r_norm):.3f}")
     for s, v in sorted(size_by_class.items()):
         print(f"      {s:<14} n={len(v):5d}  median {np.median(v)*2048:6.1f} px (at 2048)")
@@ -208,6 +280,27 @@ def fit(args):
 # SAMPLE
 # ===========================================================================
 
+def _require_empirical_count(params):
+    """
+    Refuse a parameter file written before decision 3.84.
+
+    Such a file carries count family "lognormal" and no histogram. Continuing
+    would either raise a KeyError somewhere deep inside the placement loop, or --
+    if a fallback were supplied here -- quietly generate from a distribution that
+    puts about 40% too many colonies on every plate. Both are worse than stopping,
+    and the second is the kind of failure this project exists to avoid.
+    """
+    fam = params.get("count", {}).get("family")
+    if fam != "empirical":
+        sys.exit(
+            f"ERROR (decision 3.84): this parameter file carries count family "
+            f"'{fam}', which was superseded.\n"
+            f"  A lognormal fit reproduces the real MEDIAN exactly and overshoots "
+            f"the real MEAN by ~40% (19.47 -> 27.05 on the full train split).\n"
+            f"  Fix: re-run `layout.py fit` for this level. Any plans already "
+            f"sampled from this file must be discarded, not reused.")
+
+
 def _inverse_cdf(rng, q, values, size):
     """Empirical inverse-CDF sampling (decision 3.11)."""
     u = rng.random(size) * 100.0
@@ -225,8 +318,9 @@ def recipe(rng, params, naive=False):
     Kept SEPARATE from placement -- during calibration the recipe has to stay fixed
     while gamma changes (common random numbers / variance reduction)."""
     cnt = params["count"]
-    n = int(round(math.exp(rng.normal(cnt["ln_loc"], cnt["ln_std"]))))
-    n = max(cnt["min"], min(cnt["max"], n))
+    _require_empirical_count(params)        # backstop; sample() checks first
+    n = int(rng.choice(cnt["values"],
+                       p=np.asarray(cnt["counts"], dtype=float) / sum(cnt["counts"])))
 
     if naive:                                   # A3: the class distribution is flattened too
         labels = list(rng.choice(list(params["size"].keys()), size=n))
@@ -321,6 +415,9 @@ def sample(args):
     if params["level"] != args.level:
         sys.exit(f"ERROR (decision 3.7): the parameter file has level={params['level']}, "
                  f"--level {args.level} was given. The levels must match.")
+    # decision 3.84 -- check BEFORE any directory is created, so a refused run
+    # leaves nothing behind that could be mistaken for output
+    _require_empirical_count(params)
     classes = Path(args.classes).read_text().split()
     rng = np.random.default_rng(args.seed)
 
@@ -384,7 +481,14 @@ def _stats(plates, R, cx, cy):
         np.fill_diagonal(D, 1e9)
         ce.append(D.min(1).mean() / (0.5 / math.sqrt(len(col) / (math.pi * R ** 2))))
     return dict(
-        n_median=float(np.median(counts)), n_min=int(counts.min()), n_max=int(counts.max()),
+        n_median=float(np.median(counts)),
+        # decision 3.84: the mean is NOT decoration next to the median. The count
+        # distribution is strongly right-skewed, so the two move independently --
+        # a wrong distribution can match the median exactly and still put 42% more
+        # colonies on every plate. That is what happened, and this table not
+        # having a mean row is why nobody saw it.
+        n_mean=float(counts.mean()),
+        n_min=int(counts.min()), n_max=int(counts.max()),
         r_median=float(np.median(rn)), r_sq_mean=float(np.mean(rn ** 2)),
         outer_ring=float(100 * (rn >= math.sqrt(0.8)).mean()),
         touch_rate=float(100 * touching / max(total, 1)),
@@ -413,7 +517,9 @@ def validate(args):
         generated.append([(k["xc"], k["yc"], k["diameter"]) for k in j["colonies"]])
 
     g, u = _stats(real, R, cx, cy), _stats(generated, R, cx, cy)
-    label = {"n_median": "colony count (median)", "n_min": "colony count (min)",
+    label = {"n_median": "colony count (median)",
+             "n_mean": "colony count (MEAN)  <-- decision 3.84",
+             "n_min": "colony count (min)",
              "n_max": "colony count (max)", "r_median": "r/R median",
              "r_sq_mean": "(r/R)^2 mean", "outer_ring": "% of colonies in the outer 20% of the area",
              "touch_rate": "% touching colonies  <-- decision 3.12",
@@ -425,6 +531,19 @@ def validate(args):
         gv, uv = g[k], u[k]
         f = "" if gv == 0 else f"{100*(uv-gv)/abs(gv):+.0f}%"
         marker = ""
+        if k == "n_mean":
+            # decision 3.84. The tolerance is deliberately loose because this
+            # number is noisy at small --count: 200 replicates of the empirical
+            # sampler at n = 2987 gave a 5-95% band of +/-3%, but at n = 300 the
+            # band is roughly three times wider. 10% catches a broken
+            # distribution (the lognormal was +42%) without crying wolf at a
+            # small sample. If it fires, re-check with a --count near the size of
+            # the real split before touching anything.
+            dev = abs(uv - gv) / max(gv, 1e-9)
+            marker = ("  [ok]" if dev <= 0.10 else
+                      f"  [!] {dev*100:.0f}% off -- the count distribution does not "
+                      f"match. Every synthetic plate carries the wrong number of "
+                      f"labels; the substitution curve would be biased.")
         if k == "touch_rate":
             lo, hi = params["touching"].get("target_ci90", [gv - 3, gv + 3])
             marker = ("  [ok] inside the CI90 of the real data" if lo <= uv <= hi

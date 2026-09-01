@@ -510,11 +510,34 @@ def run(args):
         syn_p = src / "masks" / f"{name}_synthetic.png"
         er_p = src / "masks" / f"{name}_erase.png"
         if not syn_p.exists():
+            # Decision 3.85. This used to warn once and then quietly carry on
+            # with the combined mask. That is worse than stopping: the run looks
+            # successful, writes a full set of plates, and every one of them can
+            # contain a colony painted into an erase region -- an UNLABELLED
+            # object, which is exactly the false negative decisions 3.25 and 3.60
+            # exist to prevent. A warning that scrolls off the top of a 20-minute
+            # log does not protect anyone.
+            #
+            # The one-pass behaviour is still reachable, but only as a DELIBERATE
+            # choice via --allow-combined-mask, so that it is recorded in the
+            # command rather than inferred from a missing file.
+            if not args.allow_combined_mask:
+                sys.exit(
+                    f"ERROR (decision 3.85): split masks not found for '{name}'.\n"
+                    f"  Expected: {syn_p}\n"
+                    f"  inpaint.py generates in TWO passes (decision 3.60): erase\n"
+                    f"  regions become plain agar, synthetic disks become colonies.\n"
+                    f"  A single combined mask cannot express that difference, so the\n"
+                    f"  model fills the erase regions too and every one of them is an\n"
+                    f"  unlabelled colony.\n"
+                    f"  Fix: re-run `mask.py build` (it now always writes the split\n"
+                    f"  masks). Only pass --allow-combined-mask if you deliberately\n"
+                    f"  want the one-pass ablation.")
             if i == 0:
-                print("  [!] split masks not found; falling back to the combined "
-                      "mask.\n      Re-run mask.py build with --split-masks: a "
-                      "single binary mask cannot\n      tell the model which "
-                      "holes must stay empty (decision 3.60).")
+                print("  [!] --allow-combined-mask: running the ONE-PASS ablation. "
+                      "Erase regions\n      may be filled with unlabelled colonies "
+                      "(decisions 3.60, 3.85). This\n      output must not be used "
+                      "for the ghost-colony gate.")
             syn_p = src / "masks" / f"{name}.png"
             er_p = None
 
@@ -672,6 +695,12 @@ def main():
                        help="canvas px a colony should occupy; overrides "
                             "--gen-scale per tile (decision 3.70). "
                             f"0 = off, {TARGET_DIAMETER} = the calibrated value.")
+        p.add_argument("--allow-combined-mask", action="store_true",
+                       help="run the ONE-PASS ablation when the split masks are "
+                            "missing, instead of stopping (decision 3.85). The "
+                            "erase regions may then be filled with UNLABELLED "
+                            "colonies, so the output is not valid for the "
+                            "ghost-colony gate. Never use it to get past an error.")
         p.add_argument("--erase-method", default="classical",
                        choices=["classical", "diffusion"],
                        help="how the erase regions become plain agar "
