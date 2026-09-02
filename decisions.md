@@ -1056,3 +1056,92 @@ Tek kosudan bir egri cikacak:
 
 Ikisi de kullanilabilir sonuc. Bedava dogrulama: seed ayni, bu kosunun 1500.
 adimi bugunku `lora_100` ile birebir ayni cikmali.
+
+---
+
+## Faz 4'un kapanisi — 2 Eylul
+
+Deney bitti. Tek degisken adim sayisiydi: rank 16, lr 1e-4, kirpma havuzu ve
+seed dort kosuda da ayni. Her kontrol noktasi 100 sentetik plak uzerinde
+`species_check.py` ile olculdu.
+
+| adim | dokusuz ayrilabilirlik | doku kapisi | sarilik sirasi (Spearman) | S.aureus sariligi |
+|---|---|---|---|---|
+| 1500 | %4 | 1/5 | +1,00 | 87,5 ← sadakat en iyi |
+| 3000 | %10 | 0/5 | +0,30 | 146,8 |
+| 4500 | **%23** | 1/5 | +0,80 | 145,7 ← ayrim en iyi |
+| 6000 | %16 | 1/5 | +0,30 | 113,7 |
+| **kapi** | **> %27** | **5/5** | — | **gercek: 88,8** |
+
+Doku orani tur bazinda:
+
+| tur | 1500 | 3000 | 4500 | 6000 |
+|---|---|---|---|---|
+| B.subtilis | ×2,62 | ×3,73 | ×3,62 | ×5,23 |
+| P.aeruginosa | ×3,41 | ×4,28 | ×3,69 | ×5,90 |
+| S.aureus | ×3,38 | ×2,17 | ×2,78 | ×3,56 |
+| E.coli | ×2,90 | ×2,71 | **×1,43** | ×3,43 |
+| C.albicans | **×1,70** | ×2,23 | ×2,20 | **×1,62** |
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.86 | **Faz 4'un doku kapisi hicbir egitim uzunlugunda GECILMEDI. "LoRA az egitilmisti" hipotezi olcumle elendi. Faz 5'e kapi gecilmeden geciliyor; sinir makalede olculmus sinirlilik olarak raporlanacak.** Ayrica: LoRA egitim suresi bir olcek degil, bir **odunlesme parametresidir** — 1500 → 6000 adim araliginda sinif ayrimi yukselirken dagilim sadakati bozuluyor, ikisini birden veren adim sayisi yok. Ve: `species_check` kapi sayisina guven araligi vermedigi icin "4500 tepe, 6000 dusus" **iddia edilemez.** | Asagida uc baslikta. |
+
+### Neden kapi acilmadi
+
+Doku kapisi en iyi 1/5 gecti (1500, 4500, 6000) ve 3000'de 0/5'e dustu. Dort
+noktanin hicbirinde 5/5 yok. Dokusuz ayrilabilirlik en iyi %23 (4500), kapi
+%27. **Daha uzun egitim dokuyu duzeltmiyor, kotulestiriyor:** doku orani
+tablosunda 6000 adim bes turun ucunde dort noktanin en kotusu.
+
+1 Eylul aksami kurulan deneyin iki okumasi vardi. "Ayrilabilirlik adimla
+yukseliyorsa LoRA az egitilmisti" kolu **kismen** dogru cikti (1500 → 4500'de
+%4 → %23 gercek bir yukselis), ama kapiya ulasmadi ve bedeli sadakat oldu.
+"Sorun kosullandirmanin kendisi" kolu asil gecerli okuma: CLIP tur adlarini
+gorsel olarak tanimadigi icin ayrimi UNet LoRA'sinin sifirdan ogrenmesi
+gerekiyor ve LoRA'nin dokunusu bunu tasiyacak kadar guclu degil. Cozum adim
+sayisinda degil, kosullandirma mekanizmasinda (textual inversion, boyut-kosullu
+LoRA, farkli taban model — hicbiri denenmedi, staj penceresine sigmiyor).
+
+### Odunlesme — makaleye bulgu olarak girer
+
+Bu deney kapiyi acmadi ama beklenmeyen bir sey olctu. LoRA sinif ayrimini
+siniflar arasi mesafeyi **abartarak** aciyor: 4500 adimda dokusuz ayrilabilirlik
+%4'ten %23'e cikarken S.aureus sariligi 87,5'ten 145,7'ye firliyor — gercek
+degeri 88,8, yani %64 fazla. 1500 adim gercege neredeyse birebir oturuyor
+(87,5 ≈ 88,8) ama siniflari ayirmiyor.
+
+Bir uctan digerine gecerken kazanilan sey ile verilen sey **ayni eksende degil**:
+ayrim kazaniliyor, sadakat veriliyor. Ikame egrisinin anlami "sentetik veri
+gercege ne kadar benziyor" oldugu icin bu, Faz 6'da hangi kontrol noktasiyla
+uretim yapilacagini bir **karara** donusturuyor — varsayilan degil. Karar Faz
+5'te ayrica verilecek ve gerekcesiyle buraya yazilacak.
+
+### Kapinin kendisinin kor noktasi — ilke 4, ucuncu kez
+
+`species_check` **kapi sayisi (dokusuz ayrilabilirlik) icin guven araligi
+hesaplamiyor.** Uc eksenli sayinin araligi 3 kat genis; kapi sayisi da benzer
+gurultude olmali. Bu yuzden yukaridaki dort noktadan cikarilabilecek sey
+sinirli:
+
+- **soylenebilir:** 1500 → 4500 arasinda gercek bir yukselis var; dort noktanin
+  hicbiri %27'ye ulasmiyor
+- **soylenemez:** "4500 tepe noktasi", "6000'de dusus basliyor" — iki komsu
+  nokta arasindaki %23 → %16 farkinin gurultuden buyuk oldugu gosterilmedi
+
+Bir kapinin neyi olcmedigi, neyi olctugu kadar onemlidir (ilke 4). `validate`
+ortalamayi olcmuyordu, %42'lik sayim hatasi orada gizlenmisti. Bu sefer kor
+nokta hata payinda ve **hala acik** — Faz 5 acik maddeler listesinde 5. sirada.
+
+### Faz 4'te gecen kapilar
+
+```
+✅ hayalet koloni      0/1341 silme bolgesi, 100 plak (09_ghost_check.py)
+✅ layout sadakati     ortalama · medyan · radyal · degme, hepsi tutuyor
+✅ etiket dogrulugu    kutular difuzyondan once doguyor, difuzyon onlari degistirmiyor
+```
+
+35 "aday" cikti, 9'una gozle bakildi: hepsi klasik inpainting'in yildiz
+bulasmasi, koloni degil. Karar 3.65 bunu tahmin etmisti.
+
+**Faz 4 kapandi. Faz 5 (protokolu dondur) basliyor.**
