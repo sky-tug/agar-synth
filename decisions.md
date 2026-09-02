@@ -1252,3 +1252,77 @@ hatadan kotudur (ilke 2).
    `results.csv`'nin `time` sutunu Ultralytics'in kendi sayaci. Ayni sey degiller
    (olculdu: 151,2 vs 108,7) — bizimki veri tarama ve isinma dahil **duvar
    saati**, ve butce icin dogru olan bu.
+
+### Protokolun dondurulmasi — dort ayri bulgu
+
+Dondurma islemi, dondurulacak seylerin **gercekten var olup olmadigini** sorunca
+dordu de kendini gosterdi. Hicbiri aranarak bulunmadi; hepsi "su anda kilitli
+olan sey nerede yaziyor" sorusunun cevabi arandiginda ortaya cikti.
+
+**① `requirements.lock` uretildi — ve ilk halinde kullanisiz olacakti.**
+
+```
+ortamda kurulu    torch 2.13.0+cu130
+pip freeze yazdi  torch==2.13.0            <- local version etiketi dustu
+```
+
+Kiralik kartta duz `pip install -r requirements.lock` **baska bir CUDA wheel'i**
+(hatta CPU surumu) kurar. Kilit dosyasi var, kilitlemiyor. Kurulum artik iki
+adimli ve talimat dosyanin kendi basligina yazildi; `--index-url` ile torch once
+kuruluyor, dogrulama komutu da orada. Basliga ayrica python surumu, venv yolu,
+CUDA, GPU adi, platform ve commit yazildi — `pip freeze` bunlarin hicbirini
+soylemiyor ve altisi da sonucu degistirebilir.
+
+**② `conf_thr = 0,35` "protokole kilitli" deniyordu ama hicbir yerde kilitli
+degildi.**
+
+`configs/base.yaml`'daki alan `null`'di ve `evaluate.py` onu **hic okumuyordu**;
+esik yalnizca komut satirindan (`--conf-thr`) geliyordu. Config'in kendi yorum
+satiri niyeti dogru yaziyordu — *"chosen on VAL, **written here**, and applied to
+the test that way"* — ama yazma adimi atlanmisti.
+
+Sizinti kilidi calisiyordu (`--split test` esiksiz DURUYOR, `--split val` ariyor)
+ve ona dokunulmadi: esik hala elle yaziliyor, cunku kurali cagri yerinde gorunur
+tutan sey bu. Eklenen sey, **yanlis yazilan esigin sessiz gecememesi.** 61
+kosuluk gridde tek bir `0.3`, o kolun sayim metriklerini kimseye haber vermeden
+kaydirir.
+
+**③ 97 otomatik kontrolun 9'u kirikti — ve bunu kimse gormuyordu.**
+
+`pytest` ortamda **kurulu degildi.** Kapilar "kosuyor" degil, "kosturulamiyor"
+durumdaydi ve `requirements.lock`'un ilk hali de icermiyordu. Kurulup
+kosturulunca `test_generate.py`'nin 9 testi `layout.py`'nin 3.84 korumasina
+carpti: testlerin `sample_params()` yardimcisi hala `family: "lognormal"`
+uretiyordu. Yani **3.84 uygulandi, testleri guncellenmedi.**
+
+Daha kotusu: 3.84'un korumasinin kendisi **hic test edilmiyordu.** Lognormal bir
+parametre dosyasi programi durduruyor mu — bunu dogrulayan bir kontrol yoktu.
+Eklendi (`test_legacy_count_rejected`), ayrica `test_count_limits` yeniden
+yazildi ve artik ampirik histogramin asil ozelligini olcuyor: **histogramda
+bulunmayan bir sayi uretilemez.** Ara deger hesabi olsaydi 60 ile 120 arasina
+gercek verinin neredeyse hic kutlesi olmayan sahte sayilar serpilirdi — 3.84'un
+ters-CDF'yi reddetme sebebi tam olarak buydu ve simdi bir kontrol olarak duruyor.
+
+Kontroller: **30/30 gecti** (29'du; koruma testi eklendi).
+
+**④ Faz 4'un ciktilarinin cogu git'te degildi.** `layout_10/25/50.json`,
+`species_check_ck3000/4500/6000.json`, `09_ghost_check.py`, LoRA
+`adapter_config.json` ve `adapt_metrics.json` dosyalari takipsizdi. 3.86'daki
+dort noktali egrinin **ham cikti dosyalari** repoda yoktu; `faz5-protokol`
+etiketi bunlari kapsamayacakti. 19 dosya, 11.526 satir takibe alindi
+(`*.safetensors` gitignore'da kaldi, symlink'ler hangi kontrol noktasi
+oldugunu belgeliyor).
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.88 | **Protokol donduruldu: `requirements.lock` (torch `+cu130` tuzagi basliga yazili), `conf_thr = 0,35` `base.yaml`'a yazildi ve `evaluate.py` uyusmazlikta DURUYOR (`--override-conf-thr` bilincli sapma icin), 3.84 sonrasi kirik kalan 9 test duzeltildi + 3.84'un korumasina test yazildi, Faz 4 ciktilari takibe alindi. Etiket: `faz5-protokol`.** | Yukarida dort baslikta. Ortak nokta: dordu de bir kuralin **belgede** var olup **kodda** olmamasiydi. |
+
+Ilke 1 dorduncu kez is gordu: *metodolojik kural bir yorum degil, calisma zamani
+kontroludur.* Bu sefer uc ayri yerde ayni sekilde ihlal edilmisti — kilitli bir
+esik null olarak, dondurulmus bir ortam eksik etiketle, uygulanmis bir karar
+guncellenmemis testlerle.
+
+**Hala acik:** `significant_diff_threshold` `base.yaml`'da `null` ve oyle
+kaliyor — **olculmedi.** G100 × 3 tohum Faz 6'da kosunca doldurulacak. Simdilik
+bos olmasi dogru; tahmin yazmak, olculmemis bir sayiyi protokole kilitlemek
+olurdu.

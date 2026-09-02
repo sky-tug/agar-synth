@@ -1,22 +1,18 @@
-# agar-synth protokol kilidi -- Faz 5
-# Faz 6'nin 61 kosusu bu ortamla kosacak. pip freeze tek basina
-# python surumunu, CUDA'yi ve indeksi soylemedigi icin basliga yazildi.
+# agar-synth protokol kilidi -- Faz 5 (karar 3.88)
+# Faz 6'nin 61 kosusu bu ortamla kosacak.
 #
-# tarih    : 2026-09-02T09:32:18.547170+00:00
-# commit   : 56881e0
+# tarih    : 2026-09-02T09:59:35.066836+00:00
+# commit   : e403e8a
 # python   : 3.12.3
 # venv     : /home/yusuf/agar-synth/src/.venv/bin/python
 # torch    : 2.13.0+cu130  cuda=13.0
 # gpu      : NVIDIA GeForce RTX 4060 Laptop GPU
 # platform : Linux-7.0.0-30-generic-x86_64-with-glibc2.39
 #
-#
-# ! DIKKAT -- torch satiri EKSIK BILGI tasiyor.
-#   Ortamda kurulu gercek surum 2.13.0+cu130; pip freeze '2.13.0' yaziyor,
-#   local version etiketi (+cu130) dusuyor. Duz
-#       pip install -r requirements.lock
-#   kiralik kartta BASKA bir CUDA wheel'i (hatta CPU) kurar ve protokol
-#   donmus GORUNUR ama donmamis olur. Kurulum iki adimli:
+# ! torch satiri EKSIK BILGI tasiyor: kurulu surum 2.13.0+cu130, pip freeze
+#   local version etiketini dusuruyor. Duz 'pip install -r requirements.lock'
+#   kiralik kartta BASKA bir CUDA wheel'i (hatta CPU) kurar; protokol donmus
+#   GORUNUR ama donmamis olur. Kurulum iki adimli:
 #
 #     pip install torch==2.13.0 torchvision==0.28.0 \
 #         --index-url https://download.pytorch.org/whl/cu130
@@ -24,22 +20,11 @@
 #
 #   Dogrulama:
 #     python -c "import torch;print(torch.__version__, torch.cuda.is_available())"
-#     beklenen ciktiu:  2.13.0+cu130 True
+#     beklenen cikti:  2.13.0+cu130 True
 #
-# ! DIKKAT -- torch satiri EKSIK BILGI tasiyor.
-#   Ortamda kurulu gercek surum 2.13.0+cu130; pip freeze '2.13.0' yaziyor,
-#   local version etiketi (+cu130) dusuyor. Duz
-#       pip install -r requirements.lock
-#   kiralik kartta BASKA bir CUDA wheel'i (hatta CPU) kurar ve protokol
-#   donmus GORUNUR ama donmamis olur. Kurulum iki adimli:
+#   Kapilari kosturmak icin pytest de bu dosyada; Faz 5'te ortamda YOKTU
+#   ve 97 kontrol kosturulamiyordu (karar 3.88).
 #
-#     pip install torch==2.13.0 torchvision==0.28.0 \
-#         --index-url https://download.pytorch.org/whl/cu130
-#     pip install -r requirements.lock
-#
-#   Dogrulama:
-#     python -c "import torch;print(torch.__version__, torch.cuda.is_available())"
-#     beklenen ciktiu:  2.13.0+cu130 True
 accelerate==1.14.0
 albucore==0.0.24
 albumentations==2.0.8
@@ -65,6 +50,7 @@ httpx==0.28.1
 huggingface_hub==1.27.0
 idna==3.18
 importlib_metadata==9.0.0
+iniconfig==2.3.0
 Jinja2==3.1.6
 kiwisolver==1.5.0
 markdown-it-py==4.2.0
@@ -98,6 +84,7 @@ pandas==3.0.5
 peft==0.20.0
 pillow==12.3.0
 platformdirs==4.11.2
+pluggy==1.6.0
 polars==1.43.2
 polars-runtime-32==1.43.2
 protobuf==7.35.1
@@ -107,6 +94,7 @@ pydantic==2.13.4
 pydantic_core==2.46.4
 Pygments==2.21.0
 pyparsing==3.3.2
+pytest==9.1.1
 python-dateutil==2.9.0.post0
 PyYAML==6.0.3
 regex==2026.7.19

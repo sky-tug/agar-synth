@@ -7,7 +7,9 @@ WHY IT EXISTS (decision 3.37):
   `layout.py` contains at least as much treacherous mathematics:
     - empirical inverse-CDF sampling (quantile grid + np.interp)
     - Strauss gamma binary search
-    - lognormal parameter estimation
+    - the empirical count histogram (decision 3.84; it was a lognormal fit until
+      that decision, and the fit inflated the MEAN by 42% while leaving the
+      median exactly right)
   And these files will produce THE DATA OF THE PAPER.
 
   The `validate` subcommand is a COMPARISON REPORT, not a unit test: it compares
@@ -51,7 +53,13 @@ def sample_params(gamma=1.0, n_min=20, n_max=20, diameter=0.05):
         "plate": {"r_ratio": L.PLATE_R_RATIO, "center": [0.5, 0.5]},
         # radius: p0=0, p100=0.9  -> spread over the disc but not pressed against the edge
         "radial": {"q": q, "values": [0.9 * (v / 100.0) for v in q]},
-        "count": {"family": "lognormal", "ln_loc": math.log(n_min), "ln_std": 0.0,
+        # Decision 3.84: the count is an empirical histogram, not a lognormal.
+        # values/counts with equal frequencies over [n_min, n_max]; when
+        # n_min == n_max (the usual case here) the count is exactly fixed, which
+        # is what these tests want -- "what will be generated" must be known.
+        "count": {"family": "empirical",
+                  "values": list(range(n_min, n_max + 1)),
+                  "counts": [1] * (n_max - n_min + 1),
                   "min": n_min, "max": n_max},
         "size": {"S.aureus": {"q": q, "values": [diameter] * len(q), "n": 100}},
         "composition": [{"S.aureus": 1.0}],
@@ -105,15 +113,56 @@ def test_touching_rate():
 
 
 def test_count_limits():
-    print("\n4) Does the colony count stay within the min/max limits (decision 3.17)")
-    params = sample_params(); params["count"].update(ln_loc=math.log(40), ln_std=1.5,
-                                                     min=12, max=125)
+    print("\n4) Colony count: the empirical histogram is reproduced (decisions 3.17, 3.84)")
+    # The shape that broke the lognormal fit: a dense low mode plus a thin, far
+    # upper tail. Median 13, mean 15.01 -- deliberately far apart, because 3.84
+    # was caught precisely by the median staying right while the mean ran away.
+    values = [1, 2, 5, 8, 13, 20, 35, 60, 120, 225]
+    counts = [40, 90, 260, 400, 520, 380, 150, 45, 8, 2]
+    exp_mean = sum(v * c for v, c in zip(values, counts)) / sum(counts)
+    params = sample_params()
+    params["count"] = {"family": "empirical", "values": values, "counts": counts,
+                       "min": min(values), "max": max(values)}
     rng = np.random.default_rng(1)
-    ns = [len(L.recipe(rng, params)[0]) for _ in range(3000)]
-    check("no plate is below the min", min(ns) >= 12, f"min={min(ns)}")
-    check("no plate is above the max", max(ns) <= 125, f"max={max(ns)}")
-    check("median ~40 (ln_loc = ln 40)", abs(np.median(ns) - 40) <= 2,
-          f"median={np.median(ns):.0f}")
+    ns = [len(L.recipe(rng, params)[0]) for _ in range(8000)]
+
+    check("no plate is below the min", min(ns) >= min(values), f"min={min(ns)}")
+    check("no plate is above the max", max(ns) <= max(values), f"max={max(ns)}")
+    # The point of the histogram: ONLY observed values may come out. An
+    # inverse-CDF interpolation would sprinkle counts like 97 between 60 and 120,
+    # into a range where the real data has almost no mass (decision 3.84).
+    check("only values present in the histogram are produced",
+          set(ns) <= set(values), f"{len(set(ns))} distinct")
+    check("the MEAN is reproduced -- the row that was missing before 3.84",
+          abs(np.mean(ns) - exp_mean) < 0.5, f"{np.mean(ns):.2f} vs {exp_mean:.2f}")
+    check("the median is reproduced too", np.median(ns) == 13, f"median={np.median(ns):.0f}")
+
+
+def test_legacy_count_rejected():
+    print("\n4b) A pre-3.84 parameter file must STOP the program (decision 3.84)")
+    # Until now nothing tested this guard. A lognormal file that slipped through
+    # would put ~40% too many colonies on every plate and bias the substitution
+    # curve in favour of synthetic data -- silently.
+    params = sample_params()
+    params["count"] = {"family": "lognormal", "ln_loc": math.log(20), "ln_std": 1.0,
+                       "min": 12, "max": 125}
+    rng = np.random.default_rng(0)
+    stopped = False
+    try:
+        L.recipe(rng, params)
+    except SystemExit:
+        stopped = True
+    check("a lognormal parameter file is refused, not silently used", stopped)
+
+    # A file with no count family at all must stop as well.
+    params2 = sample_params()
+    params2["count"] = {"min": 12, "max": 125}
+    stopped2 = False
+    try:
+        L.recipe(np.random.default_rng(0), params2)
+    except SystemExit:
+        stopped2 = True
+    check("a file with no count family is refused", stopped2)
 
 
 def test_gamma_extremes():
@@ -505,6 +554,7 @@ def main():
     print("GENERATION PIPELINE SANITY TEST  (layout.py + mask.py)")
     print("=" * 62)
     for f in (test_inverse_cdf, test_overlap_depth, test_touching_rate, test_count_limits,
+              test_legacy_count_rejected,
               test_gamma_extremes, test_gamma_monotone, test_hard_limit, test_bounds,
               test_no_silent_drop, test_deterministic, test_naive_ablation,
               test_level_lock, test_mask_area, test_mask_plate_clipping,

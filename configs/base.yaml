@@ -142,7 +142,14 @@ eval:
   significant_diff_threshold: null    # <- fill in once G100 x 3 seeds is measured
   # The counting conf threshold is chosen on VAL, written here, and applied to
   # the test that way.
-  conf_thr: null              # <- will come from the val run
+  #
+  # LOCKED -- decision 3.88. Selected on VAL during Phase 2 (G100_s0) and frozen
+  # as the ruler for all 61 runs of the grid. Until Phase 5 this field stayed
+  # `null` while the documentation already called 0.35 "locked to the protocol":
+  # the rule existed as a comment and nothing enforced it. evaluate.py now STOPS
+  # when --conf-thr disagrees with this value; a deliberate deviation must say so
+  # with --override-conf-thr (principle 1).
+  conf_thr: 0.35
   iou_thrs: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
   area_ranges: coco           # 32^2 / 96^2, on the original 2048px image
 

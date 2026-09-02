@@ -114,6 +114,24 @@ def read_protocol(config: Path):
     return int(t.get("max_det", FALLBACK_MAX_DET)), float(t.get("nms_iou", FALLBACK_NMS_IOU))
 
 
+def read_locked_conf(config: Path):
+    """
+    The counting conf threshold frozen into the protocol (decision 3.88).
+
+    It is selected ONCE on VAL and is the ruler for every run afterwards. Before
+    Phase 5 the value lived only in the documentation ("conf_thr = 0.35, LOCKED
+    TO THE PROTOCOL") while `eval.conf_thr` in base.yaml stayed null and was read
+    by nobody -- a methodological rule that existed only as a comment.
+    Returns None when the config does not lock a value.
+    """
+    if not config.exists():
+        return None
+    import yaml
+    e = (yaml.safe_load(config.read_text(encoding="utf-8")) or {}).get("eval", {}) or {}
+    v = e.get("conf_thr")
+    return None if v is None else float(v)
+
+
 def fill_preds_from_model(images, data: Path, weights: str, imgsz: int,
                           device: str, batch: int, half: bool,
                           max_det: int, nms_iou: float):
@@ -201,6 +219,10 @@ def main():
     ap.add_argument("--half", action="store_true")
     ap.add_argument("--conf-thr", type=float, default=None,
                     help="counting threshold. MANDATORY for --split test (the one selected on val)")
+    ap.add_argument("--override-conf-thr", action="store_true",
+                    help="deliberately evaluate with a conf threshold OTHER than the "
+                         "one locked in the config (eval.conf_thr). Without this flag "
+                         "a mismatch STOPS the program (decision 3.88)")
     ap.add_argument("--tag", default="", help="run name to be written into summary.json")
     args = ap.parse_args()
 
@@ -218,6 +240,28 @@ def main():
                  "  The threshold is NOT SEARCHED on the training set (the model has "
                  "seen that data, the selection comes out optimistic).\n"
                  "  Give the threshold selected on VAL: --conf-thr <value>")
+
+    # --- the locked ruler (decision 3.88) -----------------------------------
+    # The threshold still has to be TYPED on the command line: that is what keeps
+    # the leakage rule visible at the call site. What is new is that a typo can no
+    # longer pass silently -- across 61 runs a single `0.3` instead of `0.35`
+    # would move one arm's counting metrics and nothing would say so.
+    locked_conf = read_locked_conf(Path(args.config))
+    if (locked_conf is not None and args.conf_thr is not None
+            and abs(args.conf_thr - locked_conf) > 1e-9):
+        msg = (f"conf threshold MISMATCH: --conf-thr {args.conf_thr}, but the protocol "
+               f"locks {locked_conf}\n  ({args.config} -> eval.conf_thr)")
+        if not args.override_conf_thr:
+            sys.exit(f"ERROR (decision 3.88): {msg}\n"
+                     "  The ruler must be IDENTICAL in all 61 runs of the grid.\n"
+                     "  If the difference is deliberate: --override-conf-thr")
+        print("\033[1;33m! %s\033[0m" % msg)
+        print("\033[1;33m!   --override-conf-thr given -- continuing DELIBERATELY. "
+              "summary.json records it.\033[0m")
+    if locked_conf is None and args.split in ("test", "train"):
+        print("\033[1;33m%s\033[0m" % (
+            "! eval.conf_thr is null in the config: the protocol locks no threshold,\n"
+            "  so a typo in --conf-thr CANNOT be caught (decision 3.88)."))
 
     data = Path(args.data).expanduser().resolve()
     out = Path(args.out).expanduser().resolve()
@@ -271,6 +315,14 @@ def main():
             out / "conf_curve.csv", index=False)
         print(f"\nconf threshold selected on VAL: {selected}  "
               f"-> give --conf-thr {selected} in the test run")
+        if locked_conf is not None and abs(selected - locked_conf) > 1e-9:
+            # Not an error: searching on VAL is legitimate. But if a fresh search
+            # lands somewhere else, that is worth seeing rather than discovering
+            # later in a table (decision 3.88).
+            print("\033[1;33m%s\033[0m" % (
+                f"! the value selected on VAL ({selected}) differs from the one locked "
+                f"in the protocol ({locked_conf}).\n"
+                f"  The grid keeps using {locked_conf}. This is information, not an error."))
     else:
         selected = args.conf_thr
 
@@ -288,6 +340,8 @@ def main():
         "max_det": None if args.pred_dir else max_det,
         "nms_iou": None if args.pred_dir else nms_iou,
         "conf_thr_count": selected,
+        "conf_thr_locked": locked_conf,                       # decision 3.88
+        "conf_thr_overridden": bool(args.override_conf_thr),
         # --- primary metric ---
         "mAP50-95": det["map"]["all"],
         "mAP50": det["map50"]["all"],
