@@ -87,12 +87,21 @@ ABLATION = [("A1_noLoRA", 1.00, 0.75), ("A2_background", 1.00, 0.75),
 
 SECOND_DETECTOR = [("YOLO11_G25", 0.25, 0.00), ("YOLO11_G25+S", 1.00, 0.75)]
 
+# Decision 3.89: the production-LoRA checkpoint is not chosen yet, and choosing
+# it without a measurement was refused. These arms of the main grid use NO
+# synthetic data, so Phase 6 can start on them while the decision is measured.
+# Derived from MAIN_GRID rather than retyped: if a level is ever added or its
+# synthetic share changes, this list follows automatically instead of quietly
+# disagreeing with the grid it is supposed to describe.
+REAL_ONLY = [a for a in MAIN_GRID if a[2] == 0.00]
+
 ARMS = {
     "main_grid":       (MAIN_GRID, 5, "Phase 6"),
     "classic":         (CLASSIC, 3, "Phase 6"),
     "amount_sweep":    (AMOUNT, 3, "Phase 6"),
     "ablation":        (ABLATION, 3, "Phase 7"),
     # --- non-default, enabled with --arms ---
+    "real_only":       (REAL_ONLY, 5, "Phase 6"),   # decision 3.89, start here
     "classic_wide":    (CLASSIC_WIDE, 3, "Phase 6"),
     "amount_wide":     (AMOUNT_WIDE, 3, "Phase 6"),
     "second_detector": (SECOND_DETECTOR, 2, "Phase 7"),
