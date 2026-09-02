@@ -1145,3 +1145,110 @@ nokta hata payinda ve **hala acik** — Faz 5 acik maddeler listesinde 5. sirada
 bulasmasi, koloni degil. Karar 3.65 bunu tahmin etmisti.
 
 **Faz 4 kapandi. Faz 5 (protokolu dondur) basliyor.**
+
+---
+
+## Faz 5 — protokolu dondur (2 Eylul)
+
+### `--resume` testi — Faz 6'nin onkosulu
+
+Hic denenmemisti ve butun kiralik-GPU plani buna dayaniyordu: spot/kesintili
+kartta kosu yarida kalirsa devam edilemezse 319 GPU-saatlik plan cope gider.
+
+**Test tasarimi.** Ayni ayarla iki kosu, `--level 10` (299 goruntu, 6 epoch):
+
+```
+resume_ref    6 epoch kesintisiz
+resume_test   3 epoch sonra kill -9 (Ctrl+C DEGIL — spot kesintisi anidir), sonra --resume
+```
+
+**Sonuc: GECTI.** Kosu dogru yerden devam etti, `RESUME` satiri dogru dosyayi
+yukledi, egitim 4/6'dan 6/6'ya tamamlandi.
+
+| epoch | resume_ref | resume_test | fark |
+|---|---|---|---|
+| 1 | 0,08301 | 0,08301 | — birebir |
+| 2 | 0,25542 | 0,25542 | — birebir |
+| 3 | 0,31424 | 0,31424 | — birebir |
+| 4 | 0,31356 | 0,31308 | −0,00048 |
+| 5 | 0,36054 | 0,35585 | −0,00469 |
+| 6 | **0,37268** | **0,37180** | **−0,00088** |
+
+Kesme oncesi uc epoch **birebir ayni** — `deterministic: true` calisiyor ve
+test kurulumu saglam. Kesme sonrasi sapiyor: `--resume` RNG durumunu tam geri
+yuklemiyor. Buyukluk son epoch'ta binde 0,9.
+
+⚠ **Bu bir sinirlilik ve boyle raporlanacak:** ayni tohumla resume edilen bir
+kosu, kesintisiz kosuyla **birebir ayni degildir.** `significant_diff_threshold`
+henuz olculmedigi icin (base.yaml'da `null`, G100 × 3 tohum bekliyor) bu farkin
+ihmal edilebilir olduguna **karar verilemez.** Faz 6'da kesilen kosular
+`resumed: true` ile isaretli kalacak ve tohumlar arasi varyans olculdukten sonra
+bu fark onunla karsilastirilacak.
+
+### Testin ortaya cikardigi uc muhasebe hatasi
+
+Kosu devam ediyordu ama **defter tutmuyordu.**
+
+```
+① run_metrics.json UZERINE yaziliyordu
+   olculdu: gercekte ~4,3 dk suren kosu   total_min 2,32 diye yazildi
+                                          epochs_actual 4 / 6
+                                          peak_vram 4,047 — ilk parcanin 4,078'i kayboldu
+② results.csv'nin `time` sutunu da sifirlaniyor   108,7 -> 46,7
+③ epochs_actual her zaman +1
+   on_fit_epoch_end final validation'da da tetikleniyor (6 planlandi, 7 sayildi)
+```
+
+①'in sebebi yapisal: `run_metrics.json` **yalnizca kosu bitince** yaziliyordu.
+Kesilen segment hicbir zaman yazamiyor, `--resume` segmenti ise dosyayi kendi
+kismi sayilariyla eziyor. Makalenin 6. bolumu (hesaplama maliyeti) dogrudan bu
+dosyadan yazilacak; 61 kosuluk gridde spot kesintisi beklenen bir olay.
+
+③ tek basina zararsizdi (86 epoch'ta %1,2), ama ① duzeltilip segmentler
+**toplanmaya** baslayinca hata segment sayisi kadar cogaliyor: 6 epoch'luk bir
+kosu 4 + 4 = 8 diye sayilirdi. Yani ①'i duzeltmek ③'u zorunlu kildi.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.87 | **`--resume` calisiyor, Faz 6'nin onkosulu gecildi. Ama olcum muhasebesi bozuktu: `train.py`'ye append-only `runs/<name>/segments.jsonl` eklendi — her epoch sonunda yazilip `fsync` ediliyor, `kill -9`'dan sagligiyla cikiyor. `run_metrics.json`'daki `total_sec` / `gpu_hours` / `peak_vram_gb` artik BUTUN segmentlerin birikimi; `epochs_actual` `results.csv`'den okunuyor.** Eski callback sayimi `epochs_callback_raw` olarak yaninda birakildi (ilke 3). | Asagida. |
+
+**Neden `segments.jsonl`, neden tek bir JSON degil.** Kesintinin tanimi, programin
+kapanis kodunun **calismamasi.** Kosu sonunda yazilan hicbir sey bir kesintiden
+sagligiyla cikamaz; tek segmentlik bir dosyayi guncellemek de yarim yazilmis bir
+dosya birakabilir. Append-only + her epoch `fsync`: en kotu durumda son satir
+yarim kalir, `read_segments()` onu atlar ve onceki epoch'larin kaydi durur.
+
+**Dogrulama** (ayni kesinti senaryosu, `resume_fix`):
+
+```
+                     eski kod olsaydi   yeni kod   gercek
+total_min                    3,1           5,6      5,6
+epochs_actual                  4             6        6
+peak_vram_gb               4,047         4,049    4,049
+segments                     yok       2 satir        —
+accounting_complete            —          True        —
+epochs_callback_raw            —             7        —   (3 + 4: kesilen segment
+                                                           final val'e ulasmadigi
+                                                           icin +1 almiyor)
+```
+
+**Yeni alanlar:** `segments` (her segmentin son hali), `resume_count`,
+`segment_sec` ve `segment_peak_vram_gb` (yalnizca bu segment — denetlenebilirlik
+icin birikimlinin yaninda duruyor), `accounting_complete`.
+
+**`accounting_complete = false` ne demek.** `--resume` verilmis ama
+`segments.jsonl` yok — yani kesinti bu duzeltmeden ONCE olmus. O zaman kesilen
+segmentin suresi **hicbir yerde yok** ve geri getirilemez. Program bunu sessizce
+gecmiyor: sari uyari basiyor ve dosyaya `false` yaziyor. Sessiz hata, gurultulu
+hatadan kotudur (ilke 2).
+
+**Kalan iki bilinen sinir:**
+
+1. Kesilen segmentin **yarim kalan epoch'u sayilmiyor.** Segment kaydi son
+   tamamlanan epoch sonunda yazildigi icin, kesintide bosa giden kismi epoch
+   butceye girmiyor. Bilincli: o hesaplama bir sonuc uretmedi. Alt-sayim, epoch
+   basina sureden kucuk.
+2. `segments.jsonl`'deki `elapsed_sec` `t0`'dan (train cagrisindan) sayiliyor;
+   `results.csv`'nin `time` sutunu Ultralytics'in kendi sayaci. Ayni sey degiller
+   (olculdu: 151,2 vs 108,7) — bizimki veri tarama ve isinma dahil **duvar
+   saati**, ve butce icin dogru olan bu.

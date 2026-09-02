@@ -294,6 +294,47 @@ def main():
     if gpu.get("cuda"):
         torch.cuda.reset_peak_memory_stats()
 
+    # --- Decision 3.87: segment accounting ----------------------------------
+    # run_metrics.json is written ONLY when a run finishes. On a spot/preemptible
+    # card an interrupted segment therefore leaves NO time record at all, and the
+    # --resume segment then OVERWRITES the file with its own partial numbers.
+    # Measured 2 Sep: a run that really took ~4.3 min reported total_min 2.32 and
+    # epochs_actual 4 out of 6. Section 6 of the paper (computational cost) is
+    # written from this file, so a run that survives a preemption must not
+    # silently lose half of its own cost.
+    #
+    # segments.jsonl is append-only and fsync'd after EVERY epoch: it is the only
+    # part of the accounting that survives kill -9.
+    seg_path = out_dir / "segments.jsonl"
+
+    def read_segments() -> list[dict]:
+        """Last line per segment id = that segment's final state."""
+        if not seg_path.exists():
+            return []
+        by_id: dict[int, dict] = {}
+        for line in seg_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue        # a half-written last line after kill -9
+            by_id[rec["seg"]] = rec
+        return [by_id[k] for k in sorted(by_id)]
+
+    prev_segments = read_segments()
+    seg_id = (prev_segments[-1]["seg"] + 1) if prev_segments else 0
+    accounting_complete = True
+    if args.resume and not prev_segments:
+        accounting_complete = False
+        print("\033[1;33m%s\033[0m" % (
+            "! WARNING: --resume, but segments.jsonl is missing.\n"
+            "  The interrupted segment left no time record; total_sec covers THIS\n"
+            "  segment only. run_metrics.json is marked accounting_complete=false."))
+    elif prev_segments:
+        print(f"SEGMENTS   : {len(prev_segments)} earlier segment(s), "
+              f"{sum(s['elapsed_sec'] for s in prev_segments) / 60:.1f} min carried over")
+
     epoch_times = []
     last = {"t": time.perf_counter()}
 
@@ -301,6 +342,20 @@ def main():
         now = time.perf_counter()
         epoch_times.append(round(now - last["t"], 3))
         last["t"] = now
+        rec = {
+            "seg": seg_id,
+            "resumed": bool(args.resume),
+            "epochs": len(epoch_times),
+            "elapsed_sec": round(now - t0, 3),
+            "peak_vram_gb": (round(torch.cuda.max_memory_reserved() / 1024 ** 3, 3)
+                             if gpu.get("cuda") else None),
+            "git_commit": commit,
+            "utc": datetime.now(timezone.utc).isoformat(),
+        }
+        with seg_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     if args.resume:
         last_pt = out_dir / "weights" / "last.pt"
@@ -331,6 +386,7 @@ def main():
     )
 
     started_at = datetime.now(timezone.utc)
+    commit = git_commit()       # resolved once; the callback must not fork git per epoch
     t0 = time.perf_counter()
     result = model.train(resume=True) if args.resume else model.train(**kwargs)
     total = time.perf_counter() - t0
@@ -339,13 +395,35 @@ def main():
                  if gpu.get("cuda") else None)
 
     # ---------------- Metrics record ----------------
-    actual_epochs = len(epoch_times)
+    # --- cumulative accounting over all segments (decision 3.87) ------------
+    segments = read_segments()
+    cum_sec = sum(s["elapsed_sec"] for s in prev_segments) + total
+    prev_vram = [s["peak_vram_gb"] for s in prev_segments
+                 if s.get("peak_vram_gb") is not None]
+    cum_peak_vram = max(prev_vram + ([peak_vram] if peak_vram is not None else [])) \
+        if (prev_vram or peak_vram is not None) else None
+
+    # Epochs: results.csv is the only source that counts REAL epochs. The
+    # on_fit_epoch_end callback fires for the final validation pass too, so it
+    # over-counts by exactly one PER SEGMENT -- harmless at one segment (measured
+    # 2 Sep: 6 planned, 7 counted), but it multiplies once segments are summed.
+    # The old number is kept next to the measurement (principle 3).
+    callback_epochs = sum(s["epochs"] for s in prev_segments) + len(epoch_times)
+    try:
+        real_epochs = max(
+            sum(1 for _ in (out_dir / "results.csv").open(encoding="utf-8")) - 1, 0)
+    except OSError:
+        real_epochs = 0
+    actual_epochs = real_epochs or callback_epochs
+
     metrics = {
         "run": args.name,
         "smoke_test": bool(args.smoke),
         "resumed": bool(args.resume),   # the measurements are partial -- decision 3.42
+        "resume_count": max(len(segments) - 1, 0),
+        "accounting_complete": accounting_complete,
         "date_utc": started_at.isoformat(),
-        "git_commit": git_commit(),
+        "git_commit": commit,
         "level": args.level,
         "seed": args.seed,
         "overlay": args.overlay,
@@ -354,15 +432,21 @@ def main():
         "imgsz": t["imgsz"],
         "batch": t["batch"],
         "epochs_planned": t["epochs"],
-        "epochs_actual": actual_epochs,
+        "epochs_actual": actual_epochs,              # from results.csv
+        "epochs_callback_raw": callback_epochs,      # old count, +1 per segment
         # --- section 6 (computational cost) will be written from here ---
-        "total_sec": round(total, 2),
-        "total_min": round(total / 60, 2),
-        "sec_per_epoch": round(total / max(actual_epochs, 1), 2),
-        "epoch_secs": epoch_times,
-        "gpu_hours": round(total / 3600, 4),
-        "peak_vram_gb": peak_vram,
-        "images_per_sec": round(n_train * max(actual_epochs, 1) / total, 2),
+        # All four are CUMULATIVE across segments; the per-segment values sit
+        # beside them so a resumed run stays auditable (decision 3.87).
+        "total_sec": round(cum_sec, 2),
+        "total_min": round(cum_sec / 60, 2),
+        "sec_per_epoch": round(cum_sec / max(actual_epochs, 1), 2),
+        "gpu_hours": round(cum_sec / 3600, 4),
+        "peak_vram_gb": cum_peak_vram,
+        "segment_sec": round(total, 2),
+        "segment_peak_vram_gb": peak_vram,
+        "segments": segments,
+        "epoch_secs": epoch_times,                   # this segment only
+        "images_per_sec": round(n_train * max(actual_epochs, 1) / cum_sec, 2),
         "environment": {
             "python": platform.python_version(),
             "platform": platform.platform(),
@@ -383,10 +467,16 @@ def main():
 
     print("\n" + "=" * 62)
     print(f"total time     : {metrics['total_min']:.1f} min "
-          f"({metrics['gpu_hours']:.3f} GPU-hours)")
+          f"({metrics['gpu_hours']:.3f} GPU-hours)"
+          f"{f'  [{len(segments)} segments]' if len(segments) > 1 else ''}")
+    if len(segments) > 1:
+        print(f"  this segment : {total / 60:.1f} min")
     print(f"per epoch      : {metrics['sec_per_epoch']:.1f} s "
           f"({actual_epochs} epochs ran)")
-    print(f"peak VRAM      : {peak_vram} GB")
+    print(f"peak VRAM      : {cum_peak_vram} GB"
+          f"{f'  (this segment {peak_vram})' if len(segments) > 1 else ''}")
+    if not accounting_complete:
+        print("! accounting_complete = false -- an interrupted segment left no record")
     print(f"metrics -> {out_dir / 'run_metrics.json'}")
     print("=" * 62)
     print("\nNEXT:")
