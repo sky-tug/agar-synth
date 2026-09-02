@@ -1326,3 +1326,56 @@ guncellenmemis testlerle.
 kaliyor — **olculmedi.** G100 × 3 tohum Faz 6'da kosunca doldurulacak. Simdilik
 bos olmasi dogru; tahmin yazmak, olculmemis bir sayiyi protokole kilitlemek
 olurdu.
+
+### Uretim LoRA'si karari — ERTELENDI, bilincli olarak
+
+Faz 4 bir odunlesme olctu (3.86) ve Faz 5'in gorevi bunu bir karara baglamakti:
+
+```
+lora_100         1500 adim   sadakat en iyi   S.aureus sariligi  87,5  (gercek 88,8)
+                             ayrim   en kotu  dokusuz ayrilabilirlik %4
+lora_100_ck4500  4500 adim   ayrim   en iyi   %23
+                             sadakat bozuk    S.aureus 145,7  = %64 fazla
+```
+
+**Iki taraf da savunulabilir ve hicbiri olculmemis.**
+
+*1500 lehine:* ikame egrisinin anlami "sentetik veri gercege ne kadar benziyor";
+sadakat kaybi dogrudan sonucu bozar.
+
+*4500 lehine:* sinif sinyali daha guclu, detektor turleri ayirt edebilir.
+
+**Bir gozlem — kanit degil, argumanin agirligini degistiriyor.** 4500'un ayrimi
+*dogru yerde degil.* Siralama korunuyor (sarilik Spearman +0,80), ama mesafeler
+abartilmis: S.aureus'un sariligi gercekte 88,8 iken 145,7. Detektor bundan
+"E.coli cok saridir" ogrenir ve gercek test setinde E.coli o kadar sari degildir.
+1500'de siniflar ust uste biniyor — ayrim ogretmiyor, ama **yanlis bir sey de
+ogretmiyor.** Yine de bu bir mekanizma tahmini; hangisinin ikame egrisini daha
+iyi verdigi **olculmedi.**
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.89 | **Uretim LoRA'si secimi ERTELENDI. Faz 6, sentetik veri gerektirmeyen 26 kosuyla baslatiliyor; secim, o kosular donerken olcumle verilecek.** | Iki argumanin da dayanagi var, ikisinin de olcumu yok. "Olculmemis sayi, sayi degildir" ilkesi bir tahmini protokole kilitlemeyi yasaklar. Erteleme bos bekleme degil: 26 kosu LoRA'yi hic beklemiyor. |
+
+**26 kosunun sayimi** (`scripts/budget.py` icindeki `ARMS`, sentetik payi 0,00
+olan kollar):
+
+```
+main_grid   G100 · G50 · G25 · G10        4 kol × 5 tohum = 20
+classic     B_G25 · C_G25                 2 kol × 3 tohum =  6
+                                                       toplam 26
+─────────────────────────────────────────────────────────────
+bekleyenler G50+S · G25+S · G10+S · S100  4 × 5 = 20
+            G25+S_0,5x · G25+S_2x         2 × 3 =  6
+Faz 6 toplam 52 · ablasyon (Faz 7) 9 → 61
+```
+
+**Karar nasil verilecek.** G kollari kosarken tek tohumlu sinirli bir
+karsilastirma: ayni kol (S100 ya da G10+S) hem 1500 hem 4500 ile uretilip
+egitilir, mAP karsilastirilir. Boylece secim bir tercih degil bir olcum olur ve
+makaleye "hangi kontrol noktasi secildi ve neden" diye yazilabilir. Bu
+karsilastirma da kendi basina bir bulgudur: **LoRA egitim uzunlugunun ikame
+egrisine etkisi** literaturde hazir cevabi olan bir soru degil.
+
+⚠ Erteleme, kararin kaybolmasi demek degil. Sentetik kollar baslamadan **once**
+verilmek zorunda; G kollarinin bitisi bu kararin son teslim tarihidir.
