@@ -1379,3 +1379,121 @@ egrisine etkisi** literaturde hazir cevabi olan bir soru degil.
 
 ⚠ Erteleme, kararin kaybolmasi demek degil. Sentetik kollar baslamadan **once**
 verilmek zorunda; G kollarinin bitisi bu kararin son teslim tarihidir.
+
+---
+
+## Kapiya kendi hata payi verildi — ve kapi hukmu kaldiramadi (3 Eylul)
+
+Faz 5'in 5. acik maddesi: `species_check` kapi sayisi icin guven araligi
+hesaplamiyordu. Kapatildi, ve sonucu 3.86'nin iki cumlesini geri aliyor.
+
+### Once: altyapi zaten vardi, kapiya baglanmamisti
+
+`plate_bootstrap` dosyada duruyordu ve **uc eksenli** ayrilabilirlik icin
+cagriliyordu. Kapi ise **dokusuz** sayinin orani uzerinde tanimli
+(`> %27`), ve o sayi bootstrap'lenmiyordu. Yani hata payi hesabi yazilmis,
+karar veren sayiya uygulanmamisti.
+
+Ayrica orana ait bir aralik hic yoktu. Iki bagimsiz araligin uc noktalarini
+bolmek yanlis olurdu: en kotu gercek cekilisi en iyi sentetik cekilisiyle
+eslestirir, ki yeniden orneklemenin hic uretmedigi bir kombinasyondur. Oran
+icin **ayni iterasyon icinde iki tarafi birden** yeniden ornekleyen
+`retention_bootstrap` yazildi.
+
+### Ilk olcum: dordu de BELIRSIZ
+
+```
+nokta   tahmin   CI90        hukum
+1500      %4     %3 – %29    belirsiz
+3000     %10     %4 – %30    belirsiz
+4500     %23    %10 – %91    belirsiz
+6000     %16     %5 – %32    belirsiz
+kapi     %27
+```
+
+Dordunun de araligi kapiyi kesiyordu. Yani **"doku kapisi gecilemedi" hukmu
+bile desteklenmiyordu.**
+
+### Aralklarin bir kismi artefaktmis — bootstrap'in kendi kusuru
+
+Ust kuyruklar anormal genisti (4500'de %91). Sebep bulundu:
+
+```
+separability()  =  EN YAKIN CIFTIN mesafesi
+usable          =  MIN_N (15) esigini gecen siniflar
+sentetik tarafta B.subtilis n = 50     (esigin sadece 3,3 kati)
+gercek  tarafta B.subtilis n = 2993    (orada sorun yok)
+```
+
+Plaka bazli yeniden orneklemede B.subtilis'li plakalar az secildiginde n
+15'in altina dusuyor, sinif **hesaptan cikiyor**, en yakin cift degisiyor ve
+deger yukari zipliyor. Yapay veriyle olculdu: uc sinifla 2,60 — bir sinif
+dusunce **4,94** (+%90).
+
+Yani aralik iki sey iceriyordu: gercek orneklem belirsizligi **ve** olculen
+niceligin taniminin degismesi. Gercek/sentetik aralik asimetrisi (0,63–0,74'e
+karsi 0,05–0,51) tam olarak bunun imzasiydi.
+
+**Duzeltme:** hangi siniflar uzerinden olculdugu bir **analiz kararidir**,
+orneklemim rastlantisi degil. Orijinal veride bir kez belirlenir, her yeniden
+ornekleme onu miras alir. Sabit sinifin biri 2 gozlemin altina duserse o
+iterasyon dusurulur ve **kac iterasyonun dustugu basilir** — sessiz kalmaz.
+
+### Duzeltilmis olcum
+
+```
+nokta   tahmin   eski CI      yeni CI      hukum
+1500      %4    %3 – %29     %3 – %25     GECEMEDI (tum aralik altta)
+3000     %10    %4 – %30     %4 – %29     belirsiz
+4500     %23   %10 – %91     %7 – %77     belirsiz
+6000     %16    %5 – %32     %5 – %32     belirsiz
+kapi     %27
+```
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.90 | **Kapi sayisina guven araligi eklendi (`retention_bootstrap`), bootstrap'te sinif kumesi sabitlendi, kapi esigi `GATE_RETENTION = 0,27` olarak koda yazildi ve hukum aralik uzerinden veriliyor (`gate_verdict`: GECTI / GECEMEDI / BELIRSIZ). Sonuc: 3.86'nin iki cumlesi GERI CEKILIYOR.** | Asagida. |
+
+### 3.86'dan geri cekilen iki cumle
+
+**① "Doku kapisi hicbir uzunlukta gecilmedi."** Yalnizca **1500** icin kesin.
+Diger uc noktada aralik kapiyi kesiyor; nokta tahminleri kapinin altinda ama
+100 sentetik plakla hukum verilemiyor.
+
+**② "1500 → 4500 arasinda gercek bir yukselis var."** Iddia edilemez:
+%3–25 ile %7–77 fazlasiyla cakisiyor. 3.86 bu cumleyi "soylenebilecek tek sey"
+diye yazmisti; kapiya hata payi verilince o da dustu.
+
+**Yerine gecen, savunulabilir ifade:**
+
+> Dort kontrol noktasinin nokta tahmini de kapinin altindadir (%4 · %10 · %23 ·
+> %16, kapi %27). 100 sentetik plak uzerinde hesaplanan %90 guven araliklari
+> yalnizca 1500 adim icin kapinin tamamen altinda kalir; diger uc noktada aralik
+> kapiyi kestigi icin gecilip gecilmedigi bu orneklem boyutunda ayirt
+> edilememektedir.
+
+### Kalici bir sinir: 4500 ayirt edilemez
+
+4500'un nokta tahmini %23, kapi %27 — arada 4 puan var. Aralik daraltmak plak
+sayisiyla `1/√n` gider; %7–77'yi %27'nin altina indirmek pratikte ulasilamaz bir
+plak sayisi ister. **3000 ve 6000 icin ust sinirlar (%29 ve %32) kapiya cok
+yakin; birkac yuz plakla bu iki nokta muhtemelen kesinlesir.** 4500 kesinlesmez,
+cunku gercek degeri kapinin kendisine cok yakin.
+
+Bu, olcumun yetersizligi degil, **kapinin ayirt gucunun sinirinin olculmesidir**
+ve makalede boyle raporlanacak.
+
+### Ne degismedi
+
+Doku artefakti kaniti daha da guclendi: uc eksenli oran **%92**, dokusuz oran
+**%15** ve iki aralik hic ortusmuyor. Siniflar, uretecin yanlis urettigi bir
+eksende ayrisiyor. 3.67'nin kestirme-ipucu korkusunun en net olculmus hali.
+
+### Ilke 4, ucuncu kez
+
+`validate` ortalamayi olcmuyordu (%42'lik sayim hatasi orada gizlendi).
+`species_check` kapi sayisina hata payi vermiyordu (bu karar). Ve bu sefer bir
+adim daha derine indi: **hata payinin kendisi de yanlis olcuyordu**, cunku
+bootstrap olculen niceligin tanimini iterasyondan iterasyona degistiriyordu.
+Bir kapinin neyi olcmedigi, neyi olctugu kadar onemlidir — ve olcumun nasil
+olculdugu de.

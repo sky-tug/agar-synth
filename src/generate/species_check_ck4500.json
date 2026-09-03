@@ -98,12 +98,33 @@
     "real_plates": 2987,
     "generated": 0.3574443924113146,
     "generated_ci90": [
-      0.24814594317771674,
-      0.7772196577467254
+      0.23995211962735835,
+      0.597683574803498
     ],
     "generated_plates": 100,
     "real_no_texture": 0.6870950222310341,
-    "generated_no_texture": 0.15990606554185988
+    "generated_no_texture": 0.15990606554185988,
+    "real_no_texture_ci90": [
+      0.6335821215588373,
+      0.7370102245770954
+    ],
+    "generated_no_texture_ci90": [
+      0.05190106121558956,
+      0.5060920137024048
+    ],
+    "retention_no_texture": 0.23272773105332123,
+    "retention_no_texture_ci90": [
+      0.07409734841180218,
+      0.7728626974552073
+    ],
+    "retention_no_texture_boot_median": 0.24080302666283063,
+    "retention_3axis": 0.9561957031856146,
+    "retention_3axis_ci90": [
+      0.6404323747096727,
+      1.6254478392577667
+    ],
+    "gate_retention": 0.27,
+    "gate_verdict": "INCONCLUSIVE -- the interval straddles the gate (27%); more plates are needed to decide"
   },
   "flagged": [
     {

@@ -98,6 +98,12 @@ FLAG_RATIO = 2.0
 
 BOOTSTRAP = 2000
 
+# The texture-free retention gate: the generated classes must keep more than this
+# share of the real between-class separation. Written here as a constant instead
+# of living in the documentation, so the verdict line and the paper cannot drift
+# apart (decision 3.90, principle 1).
+GATE_RETENTION = 0.27
+
 
 # ---------------------------------------------------------------------------
 # measurement
@@ -220,8 +226,14 @@ def ordering(real_med: dict, gen_med: dict) -> dict:
 # verdict 2: could a classifier tell the classes apart?
 # ---------------------------------------------------------------------------
 
+def usable_classes(rows: list[dict], shared: list[str]) -> list[str]:
+    """The classes this measurement is computed over: present, and above MIN_N."""
+    d = by_class(rows)
+    return [c for c in shared if c in d and len(d[c]) >= MIN_N]
+
+
 def separability(rows: list[dict], shared: list[str],
-                 stats: tuple = STATS) -> float:
+                 stats: tuple = STATS, fixed: list[str] | None = None) -> float:
     """
     Smallest between-class centroid distance, in units of within-class spread,
     over (yellowness, contrast, texture) standardised on the pooled data.
@@ -230,9 +242,26 @@ def separability(rows: list[dict], shared: list[str],
     compare the SAME quantity between real and generated, not to estimate a
     classifier's accuracy. A number that is 5x smaller on the generated side
     means the appearances have collapsed together, whatever the constant is.
+
+    `fixed` -- decision 3.90. Inside a bootstrap the class set must NOT be
+    re-decided per resample. The measure is the distance of the CLOSEST PAIR, so
+    dropping a class removes pairs and the minimum jumps upward. On the
+    generated side B.subtilis has n=50 against a MIN_N of 15, so a resample that
+    happens to miss its plates pushes it under the threshold and inflates that
+    iteration's value. The interval then mixes sampling uncertainty with a
+    changing definition of the quantity. Which classes are measured is an
+    ANALYSIS DECISION, made once on the original data; every resample inherits
+    it. A resample that leaves a fixed class with fewer than 2 observations
+    cannot form a centroid and returns NaN -- that iteration is dropped, which
+    is honest, and rare.
     """
     d = by_class(rows)
-    usable = [c for c in shared if c in d and len(d[c]) >= MIN_N]
+    if fixed is None:
+        usable = [c for c in shared if c in d and len(d[c]) >= MIN_N]
+    else:
+        usable = [c for c in fixed if c in d and len(d[c]) >= 2]
+        if len(usable) != len(fixed):
+            return float("nan")
     if len(usable) < 2:
         return float("nan")
     allv = np.array([[r[s] for s in stats] for r in rows], dtype=float)
@@ -262,6 +291,7 @@ def plate_bootstrap(rows: list[dict], shared: list[str], rng,
     plates = sorted({r["plate"] for r in rows})
     if len(plates) < 3:
         return (float("nan"), float("nan"), len(plates))
+    fixed = usable_classes(rows, shared)          # decision 3.90
     idx: dict[str, list[dict]] = {p: [] for p in plates}
     for r in rows:
         idx[r["plate"]].append(r)
@@ -269,13 +299,89 @@ def plate_bootstrap(rows: list[dict], shared: list[str], rng,
     for _ in range(BOOTSTRAP):
         pick = rng.choice(len(plates), len(plates), replace=True)
         sample = [r for i in pick for r in idx[plates[i]]]
-        v = separability(sample, shared, stats)
+        v = separability(sample, shared, stats, fixed=fixed)
         if not np.isnan(v):
             vals.append(v)
     if not vals:
         return (float("nan"), float("nan"), len(plates))
+    if len(vals) < 0.9 * BOOTSTRAP:
+        print(f"  [!] bootstrap: {BOOTSTRAP - len(vals)}/{BOOTSTRAP} iterations "
+              f"dropped -- a fixed class fell below 2 observations (3.90).")
     return (float(np.percentile(vals, 5)), float(np.percentile(vals, 95)),
             len(plates))
+
+
+def retention_bootstrap(real_rows: list[dict], gen_rows: list[dict],
+                        shared: list[str], rng, stats: tuple = STATS) -> tuple:
+    """
+    Plate-level bootstrap of the RETENTION RATIO (generated / real separability).
+
+    Decision 3.90. The gate is stated ON THIS RATIO ("> 27% of the real
+    separation"), and until now it was the one number in this file reported
+    WITHOUT an interval -- while the two numbers it is built from both had one.
+    A gate whose own uncertainty is unknown cannot say whether it was missed by
+    a margin or by noise: on the four-checkpoint curve of decision 3.86 that is
+    exactly the difference between "1500 -> 4500 is a real rise" (claimable) and
+    "4500 is the peak" (not claimable).
+
+    Both sides are resampled INSIDE THE SAME ITERATION and the ratio is formed
+    there. Taking two independently computed intervals and dividing their
+    endpoints would overstate the spread, because it pairs the worst real draw
+    with the best generated draw -- a combination the resampling never produced.
+
+    Returns (p5, p95, median) of the ratio.
+    """
+    r_plates = sorted({r["plate"] for r in real_rows})
+    g_plates = sorted({r["plate"] for r in gen_rows})
+    if len(r_plates) < 3 or len(g_plates) < 3:
+        return (float("nan"), float("nan"), float("nan"))
+    # Decision 3.90: each side keeps the class set it was measured on. The two
+    # sides may legitimately differ (a class can clear MIN_N in reality and not
+    # in the generated set) -- that difference is a finding, not something to
+    # average away, and it stays fixed across the resamples either way.
+    r_fixed = usable_classes(real_rows, shared)
+    g_fixed = usable_classes(gen_rows, shared)
+    r_idx: dict[str, list[dict]] = {p: [] for p in r_plates}
+    g_idx: dict[str, list[dict]] = {p: [] for p in g_plates}
+    for r in real_rows:
+        r_idx[r["plate"]].append(r)
+    for r in gen_rows:
+        g_idx[r["plate"]].append(r)
+    vals = []
+    for _ in range(BOOTSTRAP):
+        rp = rng.choice(len(r_plates), len(r_plates), replace=True)
+        gp = rng.choice(len(g_plates), len(g_plates), replace=True)
+        rv = separability([x for i in rp for x in r_idx[r_plates[i]]], shared,
+                          stats, fixed=r_fixed)
+        gv = separability([x for i in gp for x in g_idx[g_plates[i]]], shared,
+                          stats, fixed=g_fixed)
+        if not (np.isnan(rv) or np.isnan(gv)) and rv > 0:
+            vals.append(gv / rv)
+    if not vals:
+        return (float("nan"), float("nan"), float("nan"))
+    if len(vals) < 0.9 * BOOTSTRAP:
+        print(f"  [!] retention bootstrap: {BOOTSTRAP - len(vals)}/{BOOTSTRAP} "
+              f"iterations dropped -- a fixed class fell below 2 observations (3.90).")
+    return (float(np.percentile(vals, 5)), float(np.percentile(vals, 95)),
+            float(np.median(vals)))
+
+
+def gate_verdict(lo: float, hi: float, gate: float) -> str:
+    """
+    Read the gate THROUGH the interval, not through the point estimate
+    (decision 3.90, principle 4).
+
+    "below the gate" and "the whole interval is below the gate" are different
+    claims, and only the second one survives a reviewer.
+    """
+    if np.isnan(lo) or np.isnan(hi):
+        return "UNDEFINED -- interval could not be computed"
+    if hi < gate:
+        return f"FAILED -- the whole interval is below the gate ({gate:.0%})"
+    if lo > gate:
+        return f"PASSED -- the whole interval is above the gate ({gate:.0%})"
+    return (f"INCONCLUSIVE -- the interval straddles the gate ({gate:.0%}); "
+            f"more plates are needed to decide")
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +516,13 @@ def main():
     COLOUR = ("yellowness", "contrast")
     rsep_c = separability(real, shared, COLOUR)
     gsep_c = separability(gen, shared, COLOUR)
+    # Decision 3.90: the gate sits on the texture-free retention ratio, so THAT
+    # is what gets an interval. Previously only the three-axis numbers had one.
+    rlo_c, rhi_c, _ = plate_bootstrap(real, shared, rng, COLOUR)
+    glo_c, ghi_c, _ = plate_bootstrap(gen, shared, rng, COLOUR)
+    ret3_lo, ret3_hi, ret3_med = retention_bootstrap(real, gen, shared, rng, STATS)
+    ret_lo, ret_hi, ret_med = retention_bootstrap(real, gen, shared, rng, COLOUR)
+
     print(f"\n2) SEPARABILITY -- could a classifier tell the classes apart? "
           f"(closest pair, in within-class spreads)")
     print(f"   real       {rsep:.2f}   (90% CI {rlo:.2f}-{rhi:.2f}, "
@@ -417,13 +530,29 @@ def main():
     print(f"   synthetic  {gsep:.2f}   (90% CI {glo:.2f}-{ghi:.2f}, "
           f"{gp} plates)")
     if not np.isnan(rsep) and rsep > 0:
-        print(f"   retained   {gsep / rsep:.0%} of the real separation")
-    print(f"   without the texture axis (colour + contrast only):")
-    print(f"   real       {rsep_c:.2f}      synthetic  {gsep_c:.2f}", end="")
+        print(f"   retained   {gsep / rsep:.0%} of the real separation"
+              f"   (90% CI {ret3_lo:.0%}-{ret3_hi:.0%})")
+    print(f"\n   without the texture axis (colour + contrast only) "
+          f"-- THIS IS THE GATE:")
+    print(f"   real       {rsep_c:.2f}   (90% CI {rlo_c:.2f}-{rhi_c:.2f})")
+    print(f"   synthetic  {gsep_c:.2f}   (90% CI {glo_c:.2f}-{ghi_c:.2f})")
     if not np.isnan(rsep_c) and rsep_c > 0:
-        print(f"      retained {gsep_c / rsep_c:.0%}")
+        print(f"   retained   {gsep_c / rsep_c:.0%} "
+              f"  (90% CI {ret_lo:.0%}-{ret_hi:.0%}, bootstrap median {ret_med:.0%})")
+        print(f"   verdict    {gate_verdict(ret_lo, ret_hi, GATE_RETENTION)}")
     else:
         print()
+    # The three-axis number is the LOOSER one and must not be read as good news:
+    # texture is the axis the generator gets wrong, so including it inflates the
+    # ratio (decision 3.67). Printed second and labelled, so the gate line above
+    # is the one the eye lands on.
+    if (not np.isnan(ret_hi) and not np.isnan(ret3_lo)
+            and ret3_lo > ret_hi):
+        print(f"   [!] the three-axis ratio ({ret3_med:.0%}) sits ENTIRELY ABOVE "
+              f"the texture-free one ({ret_med:.0%}).")
+        print(f"       That gap IS the texture artefact: the classes separate on "
+              f"an axis the\n       generator reproduces wrongly. The gate reads "
+              f"the texture-free number.")
 
     # ---- what to do with this --------------------------------------------
     if flagged:
@@ -458,6 +587,20 @@ def main():
                 "generated": gsep, "generated_ci90": [glo, ghi],
                 "generated_plates": gp,
                 "real_no_texture": rsep_c, "generated_no_texture": gsep_c,
+                # decision 3.90 -- the gate now carries its own uncertainty
+                "real_no_texture_ci90": [rlo_c, rhi_c],
+                "generated_no_texture_ci90": [glo_c, ghi_c],
+                "retention_no_texture": (gsep_c / rsep_c
+                                         if (not np.isnan(rsep_c) and rsep_c > 0)
+                                         else float("nan")),
+                "retention_no_texture_ci90": [ret_lo, ret_hi],
+                "retention_no_texture_boot_median": ret_med,
+                "retention_3axis": (gsep / rsep
+                                    if (not np.isnan(rsep) and rsep > 0)
+                                    else float("nan")),
+                "retention_3axis_ci90": [ret3_lo, ret3_hi],
+                "gate_retention": GATE_RETENTION,
+                "gate_verdict": gate_verdict(ret_lo, ret_hi, GATE_RETENTION),
             },
             "flagged": [{"cls": c, "stat": s, "ratio": r} for c, s, r in flagged],
             "counters": counters,
