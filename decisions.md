@@ -1497,3 +1497,64 @@ adim daha derine indi: **hata payinin kendisi de yanlis olcuyordu**, cunku
 bootstrap olculen niceligin tanimini iterasyondan iterasyona degistiriyordu.
 Bir kapinin neyi olcmedigi, neyi olctugu kadar onemlidir — ve olcumun nasil
 olculdugu de.
+
+---
+
+## FAZ 5 KAPANDI — 4 Eylul, stajin son gunu
+
+Karar 3.2 seviye basina ayri LoRA sart kosuyordu (sizinti kilidi) ve Faz 5'e
+girerken yalnizca seviye 100 hazirdi. Uc seviye tamamlandi:
+
+```
+seviye   kirpma   adim   eval loss           dusus    GPU-sa
+  10      3.361   1500   0,01875 -> 0,01798  -%4,1    0,496
+  25      8.249   1500   0,02588 -> 0,02489  -%3,8    0,501
+  50     16.322   1500   0,01959 -> 0,01880  -%4,0    0,497
+ 100     33.041   1500   0,02536 -> 0,02449  -%3,4    0,509
+                                             toplam   2,003
+```
+
+**Beklenmeyen bir dogrulama.** Kirpma havuzu 3.361'den 33.041'e **on kat**
+degisiyor, uyarlamanin buyuklugu degismiyor: dort seviyede de eval loss dususu
+%3,4–4,1 bandinda. Yani karar 3.2'nin dayattigi seviye basina egitim, seviyeler
+arasinda **tutarli** bir uyarlama uretiyor; ikame egrisinin sentetik kolunda
+seviyeler arasi fark, LoRA'nin farkli olcude ogrenmesinden gelmeyecek. Bu
+istenmemis ama degerli bir kontrol — Faz 3'teki "ic ice alt kumeleme calisiyor"
+dogrulamasinin LoRA tarafindaki karsiligi.
+
+Baslangic eval loss degerleri seviyeler arasinda degisiyor (0,0188–0,0259); bu
+kirpma havuzlarinin zorlugundaki dogal farktir, dususun tutarliligini
+etkilemiyor.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.91 | **Faz 5 kapandi.** Protokol donduruldu ve etiketlendi (3.88), `--resume` test edilip gecti (3.87), kapiya kendi hata payi verildi (3.90), uretim LoRA'si karari olcume baglanarak ertelendi (3.89), ve seviye 10/25/50 icin `bg_pool` + `crops` + `lora` uretildi. **Faz 6 baslatilabilir durumda.** | Faz 5'in tanimi "degisebilecek her seyi kilitle"ydi. Kilitlendi — ve kilitleme sirasinda dort ayri yerde kuralin belgede olup kodda olmadigi gorulup duzeltildi. |
+
+### Faz 5'in bilancosu
+
+```
+girerken                          cikarken
+─────────────────────────────────────────────────────────────────
+--resume hic denenmemis           test edildi, GECTI + segment muhasebesi
+requirements.lock yok             var, torch +cu130 tuzagi basliginda
+conf_thr "kilitli" ama null       base.yaml'da 0,35 + uyusmazlikta DURUYOR
+97 kontrol kosturulamiyor         30/30 geciyor (pytest lock'ta)
+Faz 4 ciktilari git'te degil      19 dosya, 11.526 satir takipte
+kapi sayisinda hata payi yok      CI var; 3.86'nin iki cumlesi geri cekildi
+1 seviyede LoRA                   4 seviyede LoRA
+```
+
+**Faz 5'te acilan ve kapatilamayan tek sey:** uretim LoRA'si secimi (3.89).
+Bilincli, olcume bagli, ve Faz 6'nin ilk 26 kosusunu engellemiyor.
+
+### Devredilen acik maddeler (Faz 5'i bloke etmiyor)
+
+```
+hocaya "ELR nedir" sorusu          outline'da gecen terim, EBPG olarak uygulandi
+G100 detektoruyle hayalet sayimi   Faz 6'nin detektorunu bekliyor
+KOD_HARITASI.md'nin 25 maddesi     bayat, koda bakilarak dogrulanmali
+sentetik plak sayisini artirmak    3000/6000 noktalarinin hukmunu kesinlestirir (3.90)
+```
+
+Staj penceresi burada kapaniyor. Calisma makale olarak devam ediyor; Faz 6 ve 7
+staj takvimine gore degil, dergi takvimine gore planlanacak.
