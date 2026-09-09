@@ -1558,3 +1558,322 @@ sentetik plak sayisini artirmak    3000/6000 noktalarinin hukmunu kesinlestirir 
 
 Staj penceresi burada kapaniyor. Calisma makale olarak devam ediyor; Faz 6 ve 7
 staj takvimine gore degil, dergi takvimine gore planlanacak.
+
+---
+
+## FAZ 6 BASLADI — esik olculdu (8 Eylul)
+
+Faz 6'nin ilk ciktisi sonuc tablosu degil, `significant_diff_threshold`
+olacakti (FAZ6_BASLANGIC §6). Olculdu. G100 kolu uc tohumla kosturuldu; s0
+zaten vardi (28 Agustos), s1 ve s2 bu gece zincir halinde kosuldu.
+
+### Tanim, sayilar gorulmeden secildi
+
+Kosular baslamadan once karara baglandi — sonuca bakip tanim secmemek icin:
+
+```
+sigma  = uc tohumun ornek standart sapmasi (ddof=1), mAP50-95 uzerinde
+esik   = 2 * sigma
+```
+
+2σ bilincli olarak muhafazakar. Iki 5 tohumlu kolun ortalamasini karsilastiran
+iki orneklemli bir sinama yaklasik 1,46σ isterdi; 2σ bundan buyuk oldugu icin
+farki gercek ilan etmekte istatistigin gerektirdiginden biraz daha cekingen
+davranir. Fazla iddia ettirmez.
+
+Karar 3.90'in dersi geregi σ'nin kendi hata payi da hesaplandi (ki-kare).
+
+### Olcum
+
+```
+kosu       mAP50-95    (metrics.py, val, 640 goruntu, 12.009 kutu)
+G100_s0     0,69875
+G100_s1     0,69476
+G100_s2     0,69677
+ortalama    0,69676
+en buyuk - en kucuk   0,00399
+
+sigma                 0,00200      %90 araligi  0,00115 – 0,00881
+ESIK = 2 * sigma      0,00399      %90 araligi  0,00231 – 0,01762
+```
+
+`configs/base.yaml` icindeki `significant_diff_threshold: null` bu sayiyla
+dolduruldu. Faz 5'te kilitli sanilip `null` duran ucuncu alan da boylece
+kapandi.
+
+### Resume sapmasi hakkinda hukum — 3.87'nin acik maddesi kapandi
+
+Karar 3.87 kesintiden sonra devam eden bir kosunun kesintisiz kosuyla birebir
+ayni olmadigini olcmus (son epoch farki 0,0009), ama tohumlar arasi varyans
+bilinmedigi icin bu farkin ihmal edilebilirligini **iddia etmemisti.** Artik
+soylenebilir:
+
+```
+0,0009  <  0,00399     nokta tahmininin altinda
+0,0009  <  0,00231     esigin %90 alt sinirinin BILE altinda
+```
+
+Yani hukum, σ'nin belirsizligi hesaba katildiginda da ayakta kaliyor. Faz 6'da
+kesilip devam ettirilen kosular `resumed: true` isaretini tasimaya devam edecek
+— isaret kalir, ama artik yanina "bu fark olculmus esigin altindadir" cumlesi
+yazilabilir.
+
+### Asil bulgu: esik yalnizca ana metrigin esigi — ilke 4, dorduncu kez
+
+Ayni uc kosunun alt metrikleri bambaska davraniyor:
+
+```
+metrik          sigma     2*sigma    ana metrigin kac kati
+mAP50-95       0,00200    0,00399         1x
+AP_E.coli      0,00106    0,00211       0,5x
+mAP50          0,00185    0,00369       0,9x
+AP_P.aerugin.  0,00329    0,00658       1,6x
+AP_B.subtilis  0,00356    0,00712       1,8x
+mAP75          0,00575    0,01151       2,9x
+AP_S.aureus    0,00630    0,01261       3,2x
+AP_C.albicans  0,00828    0,01657       4,2x
+mAP_medium     0,00912    0,01823       4,6x
+mAP_small      0,01105    0,02210       5,5x
+mAP_large      0,04382    0,08765        22x   <--
+```
+
+`mAP_large` tohumdan tohuma ana metrikten **yirmi iki kat** fazla oynuyor:
+0,7525 (s0) · 0,6953 (s1) · 0,6664 (s2). Ayni kol, ayni veri, ayni protokol,
+degisen tek sey tohum.
+
+Sonuclari:
+
+1. **Esik alt metriklere uygulanamaz.** Iki kol arasindaki bir `mAP_large` farki
+   0,00399'u gectigi icin anlamli sayilamaz; kendi 2σ'sini (0,0877) gecmesi
+   gerekir. `threshold.py` bu tabloyu her calistirmada birlikte yazdiriyor ki
+   yanlis esik yanlislikla kullanilmasin.
+2. **Faz 2'nin boyut tablosu tek kosudan geliyordu.** `small 0,574 / medium
+   0,647 / large 0,753` satiri G100_s0'in tek olcumu. Uc tohumun ortalamasi
+   `small 0,5706 / medium 0,6440 / large 0,7048`. Buyuk nesne rakami 0,05
+   asagida. Makaledeki boyut tablosu uc tohumun ortalamasi ve yayilimi olarak
+   yeniden yazilmali.
+3. **Argumanin yonu degismiyor, kesinligi degisiyor.** "Kucuk kolonileri
+   buluyor ama siki kutulayamiyor" iddiasi small–large farkina dayaniyor; uc
+   tohumun ortalamasinda bu fark 0,134, `mAP_large`'in 2σ'sinin (0,0877)
+   ustunde. Iddia ayakta, ama tek kosuluk versiyonundaki 0,179 rakami fazla
+   iyimserdi.
+
+`mAP_large`'in neden bu kadar oynak oldugu **olculmedi.** En cok kutuya sahip
+boyut sinifi (5.993) olmasina ragmen en oynak olani olmasi aciklanmayi
+bekliyor; bir hipotez yazmiyoruz, olculmemis sayi sayi degildir.
+
+### Sayim esigi tohuma gore oynuyor — 3.88'in kilidi dogrulandi
+
+`evaluate.py` sayim esigini her kosuda val uzerinde yeniden seciyor. Uc kosuda
+secilen degerler: 0,35 · 0,35 · **0,40**. Yani esik kilitlenmemis olsaydi her
+kol kendi cetveliyle sayacakti ve kollar arasi sayim farklarinin bir kismi
+cetvel farkindan gelecekti. Karar 3.88'in `conf_thr: 0.35` kilidi bu yuzden
+dogruymus — belgelenmis bir gerekce degil, olculmus bir gerekce kazandi.
+
+Bunun bir yan sonucu var: **bu uc kosunun sayim metrikleri (MAE / RMSE /
+sMAPE / ME) birbiriyle karsilastirilamaz**, cunku farkli esiklerle
+hesaplandilar. mAP etkilenmiyor — ortalama kesinlik tum guven araligi uzerinden
+integre edilir. `threshold.py` bu durumu durdurmuyor ama gurultulu bir not
+olarak yaziyor.
+
+### Uc tohum yeterli degil, ve bu gecici
+
+σ'nin %90 araligi 0,00115 ile 0,00881 arasinda — yaklasik sekiz kat. Uc
+kosuyla daha iyisi mumkun degil. Ama `main_grid` zaten G100 icin **bes** tohum
+sart kosuyor (budget.py ARMS). s3 ve s4 kosuldugunda σ bes tohumdan yeniden
+hesaplanacak ve esik guncellenecek. O ana kadar gecerli olan sayi budur ve
+gecici oldugu makalede belirtilecek.
+
+### Uc yan bulgu
+
+**1. `train.py --help` cokuyordu.** `--level` bayraginin yardim metninde
+`"real data level (%)"` yaziyordu; argparse `%` karakterini bicim dizgisi
+sanip `ValueError: unsupported format character ')'` firlatiyordu. Egitimi
+etkilemiyordu — yalnizca `--help` yolunda. `%%` yapilarak duzeltildi. Faz 5'in
+30 kontrolu bunu yakalamamisti: `--help` ciktisi test edilmiyor.
+
+**2. G100_s0 farkli bir commit'te kosuldu (5c84121), s1 ve s2 852bafa'da.**
+Ara fark denetlendi: `configs/base.yaml`'da degisen tek sey `conf_thr`
+kilidiydi (3.88) — degerlendirmeyi etkiler, egitimi etkilemez. `train.py`'de
+degisen 114 satirin tamami epoch sayimi ve sure muhasebesiydi; `model.train()`
+cagrisina giden hicbir parametre (`batch` · `imgsz` · `patience` · `workers` ·
+`seed` · augment alanlari) degismemisti. Uc kosu **karsilastirilabilir.**
+`threshold.py` commit farkini gurultulu bir not olarak yazmaya devam ediyor.
+
+**3. Eski epoch sayimi bir fazla sayiyordu.** G100_s0'in
+`run_metrics.json`'inda `epochs_actual: 87` yaziyor, gercek 86. Yeni kod
+`results.csv`'den sayiyor (3.87'nin muhasebe duzeltmesi). mAP'i etkilemiyor,
+yalnizca hesaplama maliyeti tablosunu. Faz 2'nin "86 epoch" rakami dogru olan.
+
+### Yeni arac
+
+`scripts/threshold.py` — olcumu yapan ve `results/threshold.json`'a yazan
+script. Ilke 1 geregi karsilastirilabilirligi calisma zamaninda denetliyor ve
+uyusmazlikta **duruyor**, uyarip devam etmiyor:
+
+```
+DURUR    farkli seviye · ayni tohum iki kez · smoke test
+DURUR    resume edilmis kosu    <- resume sapmasini yargilayacak olcum
+                                   kendi icinde bir resume tasiyamaz
+DURUR    kilitli conf_thr farkli · --override-conf-thr kullanilmis
+DURUR    degerlendirme eksik    (kosulacak komutu yazar)
+NOT      farkli commit · val'de secilen sayim esigi farkli
+```
+
+`--write` bayragi olmadan `base.yaml`'a dokunmuyor, ve alan `null` degilse
+yazmayi reddediyor — dondurulmus bir degeri script kendi basina degistiremez.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.92 | **`significant_diff_threshold = 0,00399`** (2σ, uc tohum, val, mAP50-95). `base.yaml`'daki `null` dolduruldu. Resume sapmasi (0,0009) esigin %90 alt sinirinin bile altinda — 3.87'nin askida biraktigi hukum verildi. | Faz 6'nin ilk ciktisi sonuc tablosu degil esik olmaliydi; iki iddia bu sayiyi bekliyordu. |
+| 3.92a | **Esik yalnizca `mAP50-95` icin gecerlidir.** Alt metriklerin her biri kendi 2σ'siyla yargilanir; `mAP_large` icin bu 0,0877, yani ana esigin 22 kati. Faz 2'nin tek kosuluk boyut tablosu uc tohumun ortalamasiyla degistirilecek. | Ilke 4, dorduncu kez: bir kapinin neyi olcmedigi, neyi olctugu kadar onemli. |
+| 3.92b | **Uc kosunun sayim metrikleri birbiriyle karsilastirilamaz** — val'de secilen sayim esigi tohuma gore 0,35 ve 0,40 arasinda oynadi. mAP etkilenmedi. | 3.88'in `conf_thr` kilidi olculmus bir gerekce kazandi: kilit olmasa her kol kendi cetveliyle sayardi. |
+| 3.92c | **Esik gecicidir.** σ'nin %90 araligi sekiz kat genis. `main_grid` G100 icin bes tohum sart kosuyor; s3 ve s4 kosuldugunda σ ve esik yeniden hesaplanacak. | Uc tohumla daha iyisi mumkun degil, ama grid zaten daha fazlasini uretecek. |
+| 3.92d | `train.py --help` cokmesi duzeltildi (`%` -> `%%`), `scripts/threshold.py` eklendi, `results/` git'e girdi. | Sessiz hata gurultulu hatadan kotudur; ama gurultulu hata da duzeltilir. |
+
+### Faz 6'da neredeyiz
+
+```
+G100  s0 s1 s2   ✅ kosuldu ve degerlendirildi
+G100  s3 s4      ⬜ main_grid bes tohum istiyor
+G50 G25 G10      ⬜ her biri 5 tohum
+B_G25 C_G25      ⬜ klasik artirma kollari, 3'er tohum
+                    ilk 26 kosunun 3'u bitti
+```
+
+Bir sonraki is: kalan `real_only` kosulari. Uretim LoRA'si karari (3.89) hala
+acik ve sentetik kollari bekletiyor.
+
+---
+
+## Esik bes tohuma cikarildi — ve Faz 2'nin mekanizma cumlesi dustu (9 Eylul)
+
+Karar 3.92c esigi **gecici** ilan etmisti: uc tohumla σ'nin %90 araligi sekiz
+kat genisti ve `main_grid` zaten G100 icin bes tohum sart kosuyordu. s3 ve s4
+kosuldu. Beklenen oldu, ama beklenenden buyuk oldu.
+
+### Esik neredeyse iki katina cikti
+
+```
+             sigma       esik (2σ)    sigma %90 araligi
+3 tohum     0,00200      0,00399      0,00115 – 0,00881
+5 tohum     0,00356      0,00711      0,00231 – 0,00844
+```
+
+```
+kosu       mAP50-95
+G100_s0     0,69875
+G100_s1     0,69476
+G100_s2     0,69677
+G100_s3     0,70391      <- yeni
+G100_s4     0,70086      <- yeni
+ortalama    0,69901      en buyuk - en kucuk  0,00915
+```
+
+Uc tohumluk tahmin yayilimi **yariya yakin dusuk** tahmin etmisti. 3.92'nin
+0,00399'u geri cekilmiyor — yanlis degildi, **eksikti.** Ilke 3 geregi eski
+tahmin yeni olcumun yaninda duruyor: uc kosuluk bir σ tahminine ne kadar
+guvenilebilecegi de bu projenin olctugu bir seydir.
+
+Resume sapmasi hakkindaki hukum (3.92) degismedi ve guclendi:
+
+```
+0,0009  <  0,00711     nokta tahmininin altinda
+0,0009  <  0,00462     yeni %90 alt sinirinin da altinda
+```
+
+`configs/base.yaml` 0,003990'dan **0,007112**'ye guncellendi.
+
+### Asil bulgu: "mAP50'de kucuk fark, mAP75'te ucurum" ayirt edilemiyor
+
+Faz 2'nin merkezi cumlesi suydu:
+
+> mAP50'de fark kucuk, mAP75'te ucurum. Model kucuk kolonileri **buluyor** ama
+> **siki kutulayamiyor.** Argumanin mekanizmasi bu.
+
+Bu cumle **tek kosudan** (G100_s0) yazilmisti. Bes tohumda her kosunun kendi
+`large − small` farki hesaplandi ve o farkin tohumlar arasi yayilimina bakildi
+(eslestirilmis fark — iki alt metrigin ortak dalgalanmasini hesaba katar):
+
+```
+metrik      ort fark    sigma     2sigma    ort/sigma   hukum
+mAP50        0,0684    0,0057     0,0115      11,9x     AYIRT EDILIYOR
+mAP75        0,1763    0,1099     0,2199       1,6x     ayirt edilemiyor
+mAP50-95     0,1239    0,0654     0,1309       1,9x     ayirt edilemiyor
+```
+
+Iddianin **tersi** cikti. "Kucuk" denen mAP50 farki istatistiksel olarak en
+saglam olani; "ucurum" denen mAP75 farki ise tohumdan tohuma savruluyor:
+
+```
+mAP75 large   0,9301 · 0,7939 · 0,8003 · 0,9345 · 0,6783    sigma 0,1074
+mAP75 small   0,6531 · 0,6097 · 0,6621 · 0,6628 · 0,6681    sigma 0,0238
+fark         +0,2770  +0,1842  +0,1382  +0,2717  +0,0102
+```
+
+Faz 2'nin `large mAP75 = 0,9301` rakami bes kosunun **en yuksegiymis.** s4'te
+ayni sayi 0,6783. Ucurum s0'da 0,277 iken s4'te 0,010.
+
+**Ne soylenebilir, ne soylenemez:**
+
+```
+SOYLENEBILIR   fark bes kosunun besinde de pozitif — yon tutarli
+SOYLENEBILIR   mAP50'de buyuk-kucuk farki 0,068 ve 11,9σ ile ayirt ediliyor
+SOYLENEMEZ     mAP75'teki farkin buyuklugu
+SOYLENEMEZ     "mAP50'de kucuk, mAP75'te ucurum" karsitligi
+SOYLENEMEZ     tek kosuluk 0,930 rakami kanit olarak
+```
+
+Faz 2'nin boyut tablosu tek kosudan geliyordu ve makalede oyle duruyordu.
+Yerine bes tohumun ortalamasi ve yayilimi yazilacak:
+
+```
+                 tek kosu (s0)      bes tohum: ortalama ± sigma
+mAP50-95 small       0,5742             0,5742 ± 0,0098
+mAP50-95 medium      0,6474             0,6457 ± 0,0075
+mAP50-95 large       0,7525             0,6981 ± 0,0667
+mAP75 small          0,6531             0,6512 ± 0,0238
+mAP75 medium         0,7687             0,7650 ± 0,0159
+mAP75 large          0,9301             0,8274 ± 0,1074
+```
+
+Kucuk nesne rakamlari neredeyse hic oynamiyor; oynayan taraf **buyuk** nesne
+tarafi. Bu, hikayenin beklenenin tam tersi ucundan geliyor.
+
+### Neden buyuk nesneler oynak — OLCULMEDI
+
+`large` sinifi en cok kutuya sahip olan (5.993) ama en oynak olani. Bir
+aciklama yazmiyoruz. Olculebilir ve ucuz bir sonraki adim var: buyuk
+kutularin kac goruntude toplandigina bakmak. Az sayida goruntude yigilmislarsa
+tek bir goruntunun iyi ya da kotu gitmesi tum `large` AP'sini sallar ve bu
+yayilimi aciklardi. Olculmemis sayi sayi degildir; hipotez olarak duruyor.
+
+### Yontem notu: alt metrik farklari eslestirilmis olculur
+
+Iki alt metrigin farkini yargilarken her metrigin σ'sini ayri ayri alip
+toplamak yanlis olur — ayni kosuda ikisi birlikte dalgalaniyor. Dogrusu her
+kosuda farki hesaplayip **farkin** σ'sina bakmak. Ornek: mAP50'de small ve
+large ayri ayri oynuyor (σ 0,0059 ve 0,0006) ama farklari neredeyse hic
+oynamiyor (σ 0,0057), cunku ikisi birlikte hareket ediyor. Ayri hesap bu
+karsilastirmayi oldugundan zayif gosterirdi.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.93 | **`significant_diff_threshold = 0,007112`** (2σ, bes tohum, val, mAP50-95). 3.92'nin uc tohumluk 0,003990'i yayilimi yariya yakin dusuk tahmin etmisti; geri cekilmiyor, yaninda duruyor. Resume hukmu degismedi, guclendi. | 3.92c bu guncellemeyi zaten ongormustu; `main_grid` G100 icin bes tohum sart kosuyor. |
+| 3.93a | **Faz 2'nin "mAP75'te ucurum" mekanizma cumlesi geri cekildi.** Bes tohumda `large − small` farki mAP75'te 1,6σ — ayirt edilemiyor. Ayni fark mAP50'de 11,9σ ile ayirt ediliyor. Yon tutarli (5/5 pozitif), buyukluk soylenemez. | Cumle tek kosudan yazilmisti ve o kosu bes kosunun en yuksegiydi. Ilke 4: kapinin neyi olcmedigi. |
+| 3.93b | **Faz 2'nin boyut tablosu bes tohumun ortalamasi ± σ olarak yeniden yazilacak.** Kucuk nesne rakamlari kararli (σ 0,010), buyuk nesne rakamlari degil (σ 0,067; mAP75'te 0,107). | Tek kosuluk boyut kirilimi yayilimini gizliyordu. |
+| 3.93c | **Alt metrik farklari eslestirilmis olculur** — her kosuda fark alinir, sonra farkin σ'sina bakilir. | Ayri σ'lari toplamak ortak dalgalanmayi yok sayar ve karsilastirmayi oldugundan zayif gosterir. |
+| 3.93d | `large` sinifinin neden oynak oldugu **olculmedi.** Sonraki adim: buyuk kutularin goruntulere dagilimina bakmak. | Hipotez yazmak yerine olculecek is olarak birakildi. |
+
+### Faz 6'da neredeyiz
+
+```
+✅ G100  s0..s4          5 kosu · 21,74 GPU-saat · esik olculdu ve yenilendi
+⬜ G50 G25 G10          15 kosu
+⬜ B_G25 C_G25           6 kosu
+⬜ sentetik kollar      26 kosu   LoRA karari (3.89) bekliyor
+```
+
+Bes kosu bitti, kirk yedi kaldi. Ama gridin geri kalanini yorumlanabilir kilan
+sayi artik elimizde — ve bu sayi olmadan yazilacak olan iki cumleden biri
+zaten yanlis cikti.

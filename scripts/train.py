@@ -171,7 +171,7 @@ def main():
     ap.add_argument("--config", default="configs/base.yaml")
     ap.add_argument("--overlay", help="augmentation arm (e.g. aug_b_classic.yaml)")
     ap.add_argument("--level", type=int, default=100,
-                    choices=[100, 50, 25, 10], help="real data level (%)")
+                    choices=[100, 50, 25, 10], help="real data level (%%)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--name", required=True, help="run name -> runs/<name>")
     ap.add_argument("--epochs", type=int, help="override the config (for the smoke test)")

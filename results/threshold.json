@@ -1,0 +1,96 @@
+{
+  "metric": "mAP50-95",
+  "n_seeds": 5,
+  "secondary": {
+    "mAP50": {
+      "mean": 0.9737159999999999,
+      "sigma": 0.0018135407356880435,
+      "own_threshold_2sigma": 0.003627081471376087,
+      "times_primary_sigma": 0.5099963168435346
+    },
+    "mAP75": {
+      "mean": 0.846706,
+      "sigma": 0.007657410136593183,
+      "own_threshold_2sigma": 0.015314820273186366,
+      "times_primary_sigma": 2.153384751372154
+    },
+    "mAP_small": {
+      "mean": 0.5742200000000001,
+      "sigma": 0.009832690374460079,
+      "own_threshold_2sigma": 0.019665380748920158,
+      "times_primary_sigma": 2.765107933313117
+    },
+    "mAP_medium": {
+      "mean": 0.6457459999999999,
+      "sigma": 0.007499758662783758,
+      "own_threshold_2sigma": 0.014999517325567516,
+      "times_primary_sigma": 2.109050665346092
+    },
+    "mAP_large": {
+      "mean": 0.698086,
+      "sigma": 0.0667553741656805,
+      "own_threshold_2sigma": 0.133510748331361,
+      "times_primary_sigma": 18.772666245675858
+    },
+    "AP_S.aureus": {
+      "mean": 0.690238,
+      "sigma": 0.0055159378169083876,
+      "own_threshold_2sigma": 0.011031875633816775,
+      "times_primary_sigma": 1.551168890338696
+    },
+    "AP_B.subtilis": {
+      "mean": 0.66257,
+      "sigma": 0.00808574981062366,
+      "own_threshold_2sigma": 0.01617149962124732,
+      "times_primary_sigma": 2.2738406373716624
+    },
+    "AP_P.aeruginosa": {
+      "mean": 0.722612,
+      "sigma": 0.004489545634025807,
+      "own_threshold_2sigma": 0.008979091268051614,
+      "times_primary_sigma": 1.2625311869741136
+    },
+    "AP_E.coli": {
+      "mean": 0.767464,
+      "sigma": 0.002078323843870323,
+      "own_threshold_2sigma": 0.004156647687740646,
+      "times_primary_sigma": 0.5844575116090953
+    },
+    "AP_C.albicans": {
+      "mean": 0.652166,
+      "sigma": 0.007794195275972986,
+      "own_threshold_2sigma": 0.015588390551945972,
+      "times_primary_sigma": 2.1918508943761945
+    }
+  },
+  "values": {
+    "G100_s0": 0.69875,
+    "G100_s1": 0.69476,
+    "G100_s2": 0.69677,
+    "G100_s3": 0.70391,
+    "G100_s4": 0.70086
+  },
+  "mean": 0.69901,
+  "spread_max_minus_min": 0.009149999999999991,
+  "sigma": 0.003555987907740974,
+  "sigma_ci90": [
+    0.002308921323656807,
+    0.008436068151513569
+  ],
+  "significant_diff_threshold": 0.007111975815481948,
+  "threshold_ci90": [
+    0.004617842647313614,
+    0.016872136303027137
+  ],
+  "definition": "2 * sample stdev (ddof=1) of mAP50-95 across seeds",
+  "resume_deviation": 0.0009,
+  "resume_deviation_below_threshold": true,
+  "resume_deviation_below_threshold_lower_bound": true,
+  "split": "val",
+  "runs_dir": "/home/yusuf/agar-synth/runs",
+  "date_utc": "2026-09-09T09:10:23+00:00",
+  "notes": [
+    "[!] the runs come from different commits: ['5c84121', '852bafa']. Check that nothing on the training path changed between them, otherwise code variance is being read as seed variance.",
+    "[!] the counting threshold selected on val differs between runs: [0.35, 0.4]. mAP is unaffected (it is integrated over all confidences), so the threshold below stands. But the counting metrics (MAE / RMSE / sMAPE / ME) of these runs were computed with different thresholds and must NOT be compared seed to seed."
+  ]
+}

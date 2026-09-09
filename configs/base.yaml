@@ -135,11 +135,19 @@ augment:
 eval:
   # The primary metric. It is the first column in the tables.
   primary_metric: mAP50-95
-  # The "there is a difference" threshold -- the same threshold will be used in
-  # the Phase 4 pilot and in the main grid. It must be LARGER than the standard
-  # deviation across seeds; it will be measured and fixed here after the Phase 2
-  # baseline is finished.
-  significant_diff_threshold: null    # <- fill in once G100 x 3 seeds is measured
+  # The "there is a difference" threshold, used for the main grid.
+  #
+  # MEASURED -- decision 3.93. 2 * sigma of mAP50-95 across the five seeds of
+  # G100 on val (0.69875 0.69476 0.69677 0.70391 0.70086; sigma 0.003556).
+  # The three-seed value of 3.92 was 0.003990 and UNDER-estimated the spread by
+  # nearly half; it is kept in decisions.md next to this one (principle 3).
+  # sigma's own 90% interval is 0.00231 .. 0.00844, so this number is a point
+  # estimate on few runs and the paper says so.
+  #
+  # THIS THRESHOLD IS FOR mAP50-95 ONLY. Every sub-metric has its own spread and
+  # must be judged by its own 2*sigma -- for mAP_large that is 0.1335, thirty
+  # times this value. See results/threshold.json for the full table (3.93a).
+  significant_diff_threshold: 0.007112    # 5 seeds, see results/threshold.json
   # The counting conf threshold is chosen on VAL, written here, and applied to
   # the test that way.
   #

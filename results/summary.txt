@@ -1,0 +1,14 @@
+========================================================================
+COLLECTED RESULTS   (2026-09-09T09:10:24+00:00)
+========================================================================
+  source            : /home/yusuf/agar-synth/runs
+  runs              : 5
+  table rows        : 5  (run x split)
+  total GPU-hours   : 21.74
+  evaluated         : 5 / 5
+
+  table -> /home/yusuf/agar-synth/results/table.csv
+  raw   -> /home/yusuf/agar-synth/results/raw/
+========================================================================
+This folder GOES INTO GIT. Run it after the runs and commit it --
+runs/ is in .gitignore, the results live nowhere else.
