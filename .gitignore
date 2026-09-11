@@ -1,28 +1,31 @@
-# --- veri ve ciktilar (buyuk, yeniden uretilebilir) ---
+# --- data and outputs (large, reproducible) ---
 data/
 runs/
-# NOT: runs/ disarida ama ICINDEKI SONUCLAR degil.
-# run_metrics.json ve eval*/summary.json birkac KB ve YENIDEN URETILEMEZ (500+ GPU-saat).
-# `python scripts/collect.py` onlari results/ altina topluyor; results/ git'e GIRIYOR.
-# Kosulardan sonra collect.py'yi calistirmayi unutma (karar 3.33).
+# NOTE: runs/ is out, but THE RESULTS INSIDE IT ARE NOT.
+# run_metrics.json and eval*/summary.json are a few KB each and are NOT
+# REPRODUCIBLE (500+ GPU-hours). `python scripts/collect.py` gathers them under
+# results/, and results/ DOES go into git.
+# Run collect.py after a batch of runs (decision 3.33).
 wandb/
 *.pt
 *.zip
 
-# --- FAZ 3 URETIM ARA CIKTILARI (26 Agustos) ---
-# Bunlar git'te DEGILDI ama .gitignore'da da yoktu -> demo doneminde sessizce
-# commit'lendiler (crops_100 icinde ~700 PNG, lora_100 icinde safetensors).
-# Tam veride 4 seviye x binlerce kirpma olacak; depoyu sisirmeden once kapatiliyor.
+# --- Phase 3 generation intermediates (26 August) ---
+# These were NOT meant to be in git but were not in .gitignore either, so they
+# were quietly committed during the demo period (~700 PNGs under crops_100,
+# safetensors under lora_100). On the full data there would be four levels x
+# thousands of crops; closed off before the repository bloats.
+# They were removed from history entirely when the repo was made public (3.95).
 src/generate/crops_*/
 src/generate/lora_*/*.safetensors
 src/generate/lora_*/*.bin
-# AMA kucuk ve YENIDEN URETILEMEZ olanlar git'e GIRIYOR:
-#   layout_<seviye>.json   fit edilmis yerlesim dagilimi   (birkac KB)
-#   bg_pool_<seviye>.json  arka plan havuzu secimi         (birkac KB)
+# BUT the small, NON-REPRODUCIBLE ones DO go into git:
+#   layout_<level>.json    fitted layout distribution      (a few KB)
+#   bg_pool_<level>.json   background pool selection       (a few KB)
 #   lora_*/adapter_config.json + adapt_metrics.json + README.md
-# Bunlar makalenin yeniden uretilebilirlik kaydi -- silinmemeli.
+# These are the paper's reproducibility record and must not be deleted.
 
-# --- SANAL ORTAMLAR -- git'e ASLA girmemeli (birkac GB) ---
+# --- virtual environments -- must NEVER enter git (several GB) ---
 .venv/
 src/.venv/
 venv/
@@ -36,25 +39,25 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# --- gecici ---
-out.txt
-reports_ozet.txt
+# --- scratch ---
+# (out.txt and reports_ozet.txt were dropped on 11 September: no code writes
+#  them any more, the patterns matched nothing.)
 *.log
 .DS_Store
 
-# Model agirligi bu repoda HICBIR YERDE durmaz (1 Eylul).
-# Onceki kural src/generate/lora_*/*.safetensors idi ve yalnizca tek seviye
-# esliyordu; ara kontrol noktalari lora_*/step_*/ altinda kaliyor ve sizmisti.
+# Model weights live NOWHERE in this repository (1 September).
+# The earlier rule was src/generate/lora_*/*.safetensors and covered only one
+# level; intermediate checkpoints under lora_*/step_*/ slipped through.
 *.safetensors
 
-# --- FAZ 4 PILOT ARA CIKTILARI (1 Eylul) ---
-# Hepsi layout_<seviye>.json + bg_pool_<seviye>.json + lora_<seviye>/ ile
-# YENIDEN URETILEBILIR. Tam boy goruntu git'e girmez.
+# --- Phase 4 pilot intermediates (1 September) ---
+# All reproducible from layout_<level>.json + bg_pool_<level>.json +
+# lora_<level>/. Full-size images do not enter git.
 src/generate/plans_*/
 src/generate/build_*/
 src/generate/synth_*/
 
-# --- ic calisma belgeleri: git gecmisinden temizlendi (11 Eylul) ---
-# Kisisel calisma notlari iceriyorlardi; kopyalari ~/agar-synth-ozel/ altinda.
+# --- internal working documents: removed from git history (11 September) ---
+# They contained personal working notes. Copies are kept outside the repository.
 PROJE_DURUMU.md
 FAZ4_BASLANGIC.md
