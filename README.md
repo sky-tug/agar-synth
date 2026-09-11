@@ -196,23 +196,89 @@ because ten demo plates pick a distribution *family*, not its parameters.
 
 ## Status
 
-Data pipeline and measurement infrastructure are complete and tested.
-The generation pipeline is complete end to end — layout, mask, LoRA adaptation,
-tiled native-resolution inpainting — and has produced its first synthetic plates
-on the 10-plate public sample. Zero label error and the absence of unlabelled
-objects are verified on generated output; generation cost is measured, not
-estimated. Class fidelity is measured and is the open problem: the class channel
-works (rank correlation 1.00 with the real ordering) but the separation between
-species retains only 27% of the real separation on the demo subset. Waiting on
-full-dataset access and a GPU allocation.
+*Last updated: 11 September 2026.*
 
-Estimated cost of the full grid: **609–857 GPU-hours** (61 training runs +
-~58,000 synthetic images + 4 LoRA adaptations). See `scripts/budget.py`.
+Phases 1–5 are closed. The full dataset (4,267 images, 83,208 boxes) is in use,
+the protocol is frozen and tagged, and the training grid of Phase 6 is running.
+
+```
+Phase 1  data preparation           done   4,267 images · 83,208 boxes
+Phase 2  real-data baseline         done   mAP50-95 = 0.699
+Phase 3  synthetic pipeline         done   4 levels: layout · bg pool · crops · LoRA
+Phase 4  texture gate               FAILED measured, and the gate's own blind spot measured
+Phase 5  freeze the protocol        done   tag faz5-bitti
+Phase 6  52 training runs         running  8 done · 30.2 GPU-hours
+Phase 7  ablations (9 runs)          ---
+```
+
+### Measured so far
+
+The real-data baseline, five seeds on val:
+
+| arm | seeds | mAP50-95 | sigma |
+|---|---|---|---|
+| G100 (100% real) | 5 | 0.6990 | 0.0036 |
+| G50 (50% real) | 3 so far | 0.6805 | 0.0024 |
+
+Halving the real training set costs **0.0185 mAP50-95** — 2.6x the significance
+threshold, so the gap is real.
+
+**The significance threshold is itself a measured quantity, and it was the first
+output of the grid rather than the last.** `eval.significant_diff_threshold`
+deliberately stayed `null` until five seeds of the same arm had been run:
+
+```
+significant_diff_threshold = 2 * sigma = 0.00711     (5 seeds, val, mAP50-95)
+sigma 90% CI                             0.0023 – 0.0084
+```
+
+Three seeds had put it at 0.00399 — an under-estimate by nearly half. The
+three-seed value is kept next to the five-seed one in `decisions.md` rather
+than deleted, because how far a small-sample sigma can stray is itself a
+finding.
+
+### Findings that cost a claim
+
+Two statements were retracted after being measured properly:
+
+- **"The class signal is real."** Three-axis separability between synthetic
+  species is 92%, but with the texture axis removed it collapses to 15%, and
+  the two intervals do not overlap. The classes separate along an axis the
+  generator gets *wrong*. This is reported as a finding, not hidden.
+- **"Small objects are found but poorly localised — mAP50 gap small, mAP75 gap
+  a chasm."** Written from a single run. Across five seeds the large-vs-small
+  gap is 11.9 sigma in mAP50 but only 1.6 sigma in mAP75: the direction holds
+  (5/5 seeds), the magnitude cannot be claimed. The cause turned out to be
+  concrete — *S. aureus* has exactly **one** large box in val, and COCO-style
+  averaging let that single box carry a quarter of `mAP_large`.
+
+### Cost, measured not estimated
+
+| | early estimate | measured |
+|---|---|---|
+| tiles per image | 19.0 | **10.06** |
+| seconds per tile | ~0.34 | **0.959** |
+| peak VRAM (generation) | — | **2.889 GB** |
+| training run (G100) | 3.5 GPU-h | **4.35 GPU-h** |
+
+The generation estimate was not 52% cheaper than assumed, as an earlier note
+claimed; it is **49% more expensive**. See `scripts/budget.py`.
+
+### Open
+
+Production-LoRA selection is deliberately unresolved and blocks the 26
+synthetic-arm runs: longer LoRA training buys class separation and pays for it
+in distribution fidelity, and the choice is tied to a measurement rather than
+an opinion. See decision 3.89 in `decisions.md`.
 
 ## Licence and citation
 
-Code: MIT. The AGAR dataset is CC BY-NC 2.0 and is **not** redistributed here.
-Ultralytics YOLO is AGPL-3.0 — see their terms if you reuse the training path.
+**Code: AGPL-3.0** (see `LICENSE`). The training and evaluation paths import
+Ultralytics YOLO, which is AGPL-3.0; this repository is therefore released
+under the same licence.
+
+The AGAR dataset is CC BY-NC 2.0 and is **not** redistributed here — no images,
+crops, or derived tiles are in this repository or its history.
 
 If this is useful to you, please cite the AGAR dataset paper
 (Majchrowska et al., 2021, [arXiv:2108.01234](https://arxiv.org/abs/2108.01234))

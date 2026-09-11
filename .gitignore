@@ -53,3 +53,8 @@ reports_ozet.txt
 src/generate/plans_*/
 src/generate/build_*/
 src/generate/synth_*/
+
+# --- ic calisma belgeleri: git gecmisinden temizlendi (11 Eylul) ---
+# Kisisel calisma notlari iceriyorlardi; kopyalari ~/agar-synth-ozel/ altinda.
+PROJE_DURUMU.md
+FAZ4_BASLANGIC.md
