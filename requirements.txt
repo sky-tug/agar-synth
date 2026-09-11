@@ -1,12 +1,14 @@
-# AGAR-SYNTH bagimliliklari
-# PyTorch BURADA YOK -- CUDA surumune gore ayri kuruluyor (scripts/setup.sh)
+# agar-synth dependencies
+# PyTorch is NOT here -- it is installed separately, matched to the CUDA
+# version (see scripts/setup.sh and the header of requirements.lock).
 
-# --- Faz 1-2: veri hatti, tespit, olcum ---
-# Karar 3.46: >=8.3.0 idi. Ama base.yaml yolo26n.pt ve cutmix istiyor, ikisi de
-# 8.4'te geldi -- yani eski kisit, config'i CALISTIRAMAYACAK bir surume izin
-# veriyordu. Olcumler 8.4.118 ile yapildi; Faz 5'te `pip freeze > requirements.lock`.
+# --- Phases 1-2: data pipeline, detection, measurement ---
+# Decision 3.46: this used to be >=8.3.0. But base.yaml asks for yolo26n.pt and
+# cutmix, both introduced in 8.4 -- so the old constraint permitted a version
+# that COULD NOT RUN the config. All measurements were taken on 8.4.118;
+# requirements.lock pins the exact environment (decision 3.88).
 ultralytics>=8.4.118
-pycocotools>=2.0.7        # olcum kodunun capraz dogrulamasi (test_metrics.py test 10)
+pycocotools>=2.0.7        # cross-check for our own AP code (test_metrics.py)
 numpy>=1.26
 pandas>=2.0
 pillow>=10.0
@@ -17,17 +19,17 @@ matplotlib>=3.8
 seaborn>=0.13
 tqdm
 
-# --- deney takibi ---
+# --- experiment tracking ---
 wandb>=0.16
 
-# --- Faz 2: klasik veri artirma kolu (Baseline B/C) ---
+# --- Phase 2: classical augmentation arms (Baseline B / C) ---
 albumentations>=1.4
 
-# --- Faz 3: uretim hatti (difuzyon) -- 26 Agustos: ACILDI ---
-# src/generate/ icinde GERCEKTEN import edilenler: diffusers, peft.
-# transformers/accelerate/safetensors diffusers'in calisma zamani bagimliligi
-# (SD 1.5 inpainting metin kodlayicisi icin); acikca yaziliyor ki makale
-# yeniden uretilebilir olsun. Kurulu ve olcumlerin yapildigi surumler:
+# --- Phase 3: generation pipeline (diffusion) ---
+# Actually imported under src/generate/: diffusers, peft.
+# transformers / accelerate / safetensors are runtime dependencies of diffusers
+# (for the SD 1.5 inpainting text encoder); they are listed explicitly so the
+# paper stays reproducible. Versions the measurements were taken with:
 # diffusers 0.39.0, peft 0.20.0.
 diffusers>=0.39
 peft>=0.20
@@ -35,11 +37,12 @@ transformers>=4.40
 accelerate>=0.30
 safetensors
 
-# --- Plan listesindeydi, KODA HIC GIRMEDI (26 Agustos import taramasi) ---
-# Gerceklik olcumu su an species_check.py'nin kendi olcutleriyle yapiliyor.
-# Faz 8'de FID/LPIPS eklenirse burasi acilir ve karar decisions.md'ye yazilir.
+# --- on the plan, never imported by any code (audited 26 August) ---
+# Realism is currently measured by species_check.py's own statistics.
+# If FID / LPIPS are added in Phase 8, these are uncommented and the decision
+# is recorded in decisions.tr.md.
 # clean-fid                # FID / KID
 # lpips                    # LPIPS
 
-# --- Faz 7: XAI kolu (Grad-CAM/++) ---
+# --- Phase 7: XAI arm ---
 # grad-cam>=1.5

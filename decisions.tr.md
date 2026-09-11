@@ -2019,3 +2019,134 @@ Faz 2 boyut tablosunun yeniden yazimi  artik filtrelenmis sutunla (3.93b + 3.94b
 Ana metrik `mAP50-95` ve esik **degismiyor** — hicbir sinifin `all` bandinda az
 kutusu yok (en dusuk 627). Gridin sonuclari ve 3.93'un esigi oldugu gibi
 gecerli.
+
+---
+
+## Depo yayina acildi — ve acilirken uc yerde yanlis bilgi buldu (11 Eylul)
+
+Depo public yapildi: https://github.com/sky-tug/agar-synth
+(GitHub kullanici adi `Hoy-i` → `sky-tug` olarak degisti.)
+
+Yayina acmak bir belge isi sanilmisti; uc ayri problem cikardi.
+
+### 1. Git gecmisi temizlendi — iki farkli sebeple
+
+**Kisisel notlar.** `PROJE_DURUMU.md` ve `FAZ4_BASLANGIC.md` icinde calisma
+uslubu notlari, ogrenci numarasi ve saglikla ilgili bir satir vardi. Bunlar ic
+calisma belgeleriydi ve public bir depoda bulunmamaliydi. Dosyayi silmek
+yetmez — git gecmisinde kalirdi ve `git log` ile herkes ulasirdi. `git
+filter-repo` ile **29 commit'in tamamindan** cikarildi; kopyalari depo disinda
+saklandi.
+
+**AGAR turevi goruntuler.** `.gitignore`'in kendi notu "demo doneminde sessizce
+commit'lendiler" diyordu ve dogruydu: gecmiste 312 dosya duruyordu.
+
+```
+308 dosya   src/generate/crops_100/{images,masks}   AGAR plakalarindan kesilmis
+  3 dosya   src/generate/*.png                      gorsellestirmeler
+  1 dosya   lora_100/adapter_model.safetensors      12,2 MB model agirligi
+```
+
+Kirpmalar AGAR'dan dogrudan kesilmis goruntuler; AGAR **CC BY-NC 2.0** ve depo
+onu yeniden dagitmamali. Ayni turla temizlendi.
+
+```
+depo boyutu   39 MB  →  461 KB
+```
+
+Yedek: `git bundle` ile tam gecmis temizlikten once saklandi.
+
+### 2. Lisans duzeltildi: MIT → AGPL-3.0
+
+`README.md` "Code: MIT" diyordu ve `LICENSE` dosyasi **yoktu.** Ama `train.py`
+ve `evaluate.py` dogrudan `from ultralytics import YOLO` yapiyor; Ultralytics
+AGPL-3.0 ve onu kullanan yazilimin kaynagini ayni lisansla dagitmayi sart
+kosuyor. MIT iddiasi bu durumda savunulamaz.
+
+`LICENSE` olarak AGPL-3.0 tam metni eklendi, README'de gerekcesiyle birlikte
+yazildi. (Hukuki gorus degil; bilincli bir secim olmasi icin yapildi.)
+
+### 3. Belgelerin ucu bayat cikti
+
+**`README.md`'nin durum bolumu** "tam veri erisimi ve GPU tahsisi bekleniyor"
+diyordu. Faz 5 kapanmis, Faz 6'da sekiz kosu bitmis, esik olculmustu. Depoyu
+acan biri projeyi bir yil geriden gorurdu. Olculmus durum tablolariyla
+yeniden yazildi: faz tablosu, G100/G50 sonuclari, esik ve neden gridin **ilk**
+ciktisi oldugu, geri cekilen iki iddia, olculmus maliyet.
+
+**`KOD_HARITASI.md` kodun yarisini tanimiyordu.** Dosya adlari Turkce'den
+Ingilizce'ye cevrilmis (3.x doneminde), harita guncellenmemisti:
+
+```
+harita diyor              gercek
+yerlesim.py               layout.py      (601 satir)
+maske.py                  mask.py        (288)
+butce.py                  budget.py      (382)
+kurulum.sh                setup.sh       (153)
+aug_b_klasik.yaml         aug_b_classic.yaml
+train.py 327 satir        489
+evaluate.py 247 satir     467
+```
+
+Ustelik `inpaint.py` (743), `species_check.py` (612), `test_generate.py` (590),
+`adapt.py` (487), `threshold.py` (344), `tiles.py` (260), `collect.py` (219) ve
+`exploration/` altindaki 9 script (1.147 satir) haritada **hic yoktu** — toplam
+8.985 satirin yaklasik yarisi.
+
+Yerine `CODE_MAP.md` yazildi: Ingilizce, gercek dosya adlari ve satir
+sayilariyla, verinin akis sirasina gore. Eski haritanin en degerli parcasi olan
+"uc desen" bolumu Ingilizce'ye tasindi ve dorduncu bir satirla genisletildi —
+testlerin hukumsuzlugu (3.94).
+
+**Kontrol sayilari dort yerde dort farkli yaziyordu.**
+
+```
+README diyordu          36 · 61
+setup.sh diyordu        36 (42 pycocotools ile) · 61
+grep sayimi verdi       44 · 67
+gercek (main ciktisi)   50 · 65
+```
+
+Kendi kuralimiz ("olculmemis sayi sayi degildir") uc belgede birden
+cignenmisti. Ikisi de calistirilip sayildi: **50 + 65 = 115 kontrol.** Ucu de
+ayni sayiya cekildi. 3.94'te yazilan "104 kontrol" de bir grep sayimiydi;
+115 olarak duzeltildi.
+
+### 4. Silinen belgeler
+
+```
+KOD_HARITASI.md      kodun yarisini tanimiyor, dosya adlari yanlis  → CODE_MAP.md
+REHBER.md            13 Agustos · "yarin Faz 3'e basliyoruz"        → bayat
+LAYOUT_FINDINGS.md   14 Agustos · 10 plak/387 koloni, kendi icinde
+                     "bu sayilar gecici" yaziyor; tam veri geldi,
+                     guncellenmedi. Ayrica silinen bir PNG'ye kirik
+                     referans veriyordu                             → bayat
+GLOSSARY.md          TR→EN ceviri sozlugu; amaci "ceviri boyunca tek
+                     dogru kaynak" idi, ceviri bitti                → islevi sona erdi
+```
+
+`literatur/00_gap_kontrolu.md` Ingilizce'ye cevrildi ve
+`literature/gap_check.md` oldu — icerigi hala gecerli, yalnizca dili degisti.
+`requirements.txt` ve `requirements.lock`'un basliklari da cevrildi (paket
+listesi aynen korundu; lock'taki torch `+cu130` tuzagi uyarisi Ingilizce olarak
+yerinde duruyor).
+
+Bu dosya Turkce kaliyor ve adi `decisions.tr.md` oldu. Yanina `DECISIONS.md`
+kondu: 121 kararin Ingilizce ozeti, olculen sayilar ve geri cekilen iddialar
+dahil. Tam kayit burada, cunku makale Turkce, danisman Turkce ve bu dosya
+projenin hafizasi; cevirmek anlam kaymasi riski tasirdi.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.95 | **Depo public.** Git gecmisi iki sebeple temizlendi: kisisel notlar (2 belge) ve AGAR turevi goruntuler + model agirligi (312 dosya). 39 MB → 461 KB. | Silmek yetmez, gecmiste kalirdi. CC BY-NC verisi yeniden dagitilamaz. |
+| 3.95a | **Lisans MIT degil AGPL-3.0.** `LICENSE` eklendi. | Kod Ultralytics'i import ediyor; AGPL-3.0 turev isin ayni lisansla dagitilmasini sart kosuyor. |
+| 3.95b | **`KOD_HARITASI.md` → `CODE_MAP.md`** (Ingilizce, gercek dosyalarla). Eski harita 8.985 satirin yarisini tanimiyordu. | Yanlis bilgi veren bir harita, harita olmamasindan kotudur. |
+| 3.95c | **Kontrol sayisi olculdu: 50 + 65 = 115.** README, `setup.sh` ve 3.94 ayni sayiya cekildi. | Dort kaynak dort farkli sayi soyluyordu; hicbiri calistirilip sayilmamisti. |
+| 3.95d | Uc bayat belge silindi (`REHBER` · `LAYOUT_FINDINGS` · `GLOSSARY`). | Ikisi kendi icinde "gecici" damgaliydi, biri ceviri bitince islevini yitirdi. |
+| 3.95e | **Depo dili ayristirildi.** Disari bakan her sey Ingilizce: `README` · `CODE_MAP` · `ARCHITECTURE` · `DECISIONS.md` · `requirements*` · `literature/gap_check.md`. Karar kaydinin tam hali `decisions.tr.md` olarak calisma dilinde kaldi. | Yarisi Ingilizce yarisi Turkce bir depo dagnik gorunuyor. Ama 132 KB'lik kaydi cevirmek anlam kaymasi riski tasir ve kimse bastan sona okumaz; onemli olan var olmasi. Ozet cevrildi, tam kayit korundu. |
+
+
+### Not — bu bolum ceviriyle ilgili
+
+`DECISIONS.md` bu dosyanin Ingilizce ozetidir; tam kayit burasidir. Ikisi
+celisirse **bu dosya** gecerlidir, cunku ozet argumani degil sonucunu tasiyor.

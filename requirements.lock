@@ -1,29 +1,30 @@
-# agar-synth protokol kilidi -- Faz 5 (karar 3.88)
-# Faz 6'nin 61 kosusu bu ortamla kosacak.
+# agar-synth protocol lock -- Phase 5 (decision 3.88)
+# The 61 runs of Phase 6 all use this environment.
 #
-# tarih    : 2026-09-02T09:59:35.066836+00:00
+# date     : 2026-09-02T09:59:35.066836+00:00
 # commit   : e403e8a
 # python   : 3.12.3
-# venv     : /home/yusuf/agar-synth/src/.venv/bin/python
+# venv     : src/.venv
 # torch    : 2.13.0+cu130  cuda=13.0
 # gpu      : NVIDIA GeForce RTX 4060 Laptop GPU
 # platform : Linux-7.0.0-30-generic-x86_64-with-glibc2.39
 #
-# ! torch satiri EKSIK BILGI tasiyor: kurulu surum 2.13.0+cu130, pip freeze
-#   local version etiketini dusuruyor. Duz 'pip install -r requirements.lock'
-#   kiralik kartta BASKA bir CUDA wheel'i (hatta CPU) kurar; protokol donmus
-#   GORUNUR ama donmamis olur. Kurulum iki adimli:
+# ! THE TORCH LINE BELOW IS INCOMPLETE. The installed version is 2.13.0+cu130,
+#   but `pip freeze` drops the local version label. A plain
+#   `pip install -r requirements.lock` will therefore install a DIFFERENT CUDA
+#   wheel -- possibly the CPU one -- and the protocol will LOOK frozen while it
+#   is not. Install in two steps:
 #
 #     pip install torch==2.13.0 torchvision==0.28.0 \
 #         --index-url https://download.pytorch.org/whl/cu130
 #     pip install -r requirements.lock
 #
-#   Dogrulama:
+#   Verify:
 #     python -c "import torch;print(torch.__version__, torch.cuda.is_available())"
-#     beklenen cikti:  2.13.0+cu130 True
+#     expected:  2.13.0+cu130 True
 #
-#   Kapilari kosturmak icin pytest de bu dosyada; Faz 5'te ortamda YOKTU
-#   ve 97 kontrol kosturulamiyordu (karar 3.88).
+#   pytest is in this file as well. During Phase 5 it was missing from the
+#   environment and the test suites could not be run at all (decision 3.88).
 #
 accelerate==1.14.0
 albucore==0.0.24

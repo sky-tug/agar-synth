@@ -6,7 +6,7 @@ from `git ls-files "*.py" "*.sh" "*.yaml" | xargs wc -l`, 11 September 2026 —
 
 Read `ARCHITECTURE.md` for *why* the pipeline is shaped this way; this file is
 *where things are*. Every decision number cited here is written up in
-`decisions.md` (Turkish — see the note in README).
+`DECISIONS.md` (English summary) and `decisions.tr.md` (full record).
 
 ---
 
@@ -250,7 +250,7 @@ Unit tests for the generation half: inverse-CDF sampling, Strauss bisection, mas
 geometry, level-mismatch refusal, the constant that guarantees zero label error.
 
 ### `src/generate/exploration/` — 9 scripts, 1,147 lines
-One-off measurements, kept because their numbers are cited in `decisions.md`:
+One-off measurements, kept because their numbers are cited in `DECISIONS.md`:
 plate circle geometry, size and radial distributions, count distribution
 (`08`, which disproved the lognormal assumption), ghost-colony scan (`09`),
 mask and plate-edge visual checks.
@@ -323,7 +323,8 @@ runs/<name>/               weights and per-run outputs — GITIGNORED
   run_metrics.json           time · epochs · GPU-hours · peak VRAM · git commit
   segments.jsonl             per-epoch record, survives kill -9
   eval_val/summary.json      the numbers collect.py picks up
-decisions.md               every decision, with its reasoning — Turkish
+DECISIONS.md               every decision with its reasoning (English)
+decisions.tr.md            the same log unabridged, working language
 ```
 
 Run `python scripts/collect.py` after a batch of runs. `runs/` is gitignored;

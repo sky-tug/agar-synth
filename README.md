@@ -33,7 +33,7 @@ disks**, leaving everything else untouched.
 The coordinates were yours to begin with, so **the label is free and exact**.
 
 The synthetic mask is exactly the labelled disk, with no margin
-([decision 3.24](decisions.md)). Diffusion can only paint inside the mask, so a
+([decision 3.24](DECISIONS.md)). Diffusion can only paint inside the mask, so a
 generated colony cannot outgrow its box. That is what "zero label error" rests on,
 and `src/generate/test_generate.py` asserts the constant that guarantees it.
 
@@ -97,9 +97,10 @@ scripts/setup.sh             one-command environment setup + test gate
 
 `CODE_MAP.md` is the file-by-file map: what each script does, in the order the
 data moves through them. `ARCHITECTURE.md` explains *why each line is written
-the way it is*. `decisions.md` is the decision log — **in Turkish**, because the
-paper and the supervision are in Turkish; it is the project's memory rather than
-its documentation, and the English files above cover what a reader needs.
+the way it is*. `DECISIONS.md` is the decision log: every methodological choice
+with its reason, and — where it happened — the measurement that later overturned
+it. `decisions.tr.md` is the same log unabridged, in the working language of the
+project.
 
 ---
 
@@ -235,7 +236,7 @@ sigma 90% CI                             0.0023 – 0.0084
 ```
 
 Three seeds had put it at 0.00399 — an under-estimate by nearly half. The
-three-seed value is kept next to the five-seed one in `decisions.md` rather
+three-seed value is kept next to the five-seed one in `DECISIONS.md` rather
 than deleted, because how far a small-sample sigma can stray is itself a
 finding.
 
@@ -271,7 +272,7 @@ claimed; it is **49% more expensive**. See `scripts/budget.py`.
 Production-LoRA selection is deliberately unresolved and blocks the 26
 synthetic-arm runs: longer LoRA training buys class separation and pays for it
 in distribution fidelity, and the choice is tied to a measurement rather than
-an opinion. See decision 3.89 in `decisions.md`.
+an opinion. See decision 3.89 in `DECISIONS.md`.
 
 ## Licence and citation
 
