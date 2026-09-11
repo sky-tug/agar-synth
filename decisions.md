@@ -1906,11 +1906,11 @@ kimse gormuyor.
 test_metrics.py     11 test fonksiyonu · 37 kontrol · 0 assert
 test_generate.py    19 test fonksiyonu · 67 kontrol · 0 assert
 ────────────────────────────────────────────────────────────
-                    30 fonksiyon   104 kontrol   sifir hukum
+                    30 fonksiyon   115 kontrol   sifir hukum
 ```
 
 Yani "30 passed", **30 fonksiyonun cokmeden calistigi** anlamina geliyordu;
-icindeki 104 kontrolun ne buldugu anlamina degil. Kasitli yanlis bir kontrolle
+icindeki 115 kontrolun ne buldugu anlamina degil. Kasitli yanlis bir kontrolle
 (`2+2 == 5`) dogrulandi: pytest `1 passed` yazdi.
 
 Faz 5'in "97 kontrol kosturulamiyor → 30/30 geciyor" bilancosu bu yuzden fazla
@@ -2002,7 +2002,7 @@ yazildi. Once yazilsaydi yine yesil gorunurdu.
 
 | # | Karar / bulgu | Gerekce |
 |---|---|---|
-| 3.94 | **`check()` pytest altinda `assert` ediyor.** 30 test fonksiyonundaki 104 kontrolun hicbiri pytest'e hukum bildirmiyordu; "30 passed" yalnizca fonksiyonlarin cokmedigini soyluyordu. Duzeltmeden sonra yine `30 passed` — hepsi gercekten geciyormus. | Ilke 1, dorduncu kez: kural kodda vardi ama hukmu yoktu. Faz 6 boyunca her commit bu teste guvendi. |
+| 3.94 | **`check()` pytest altinda `assert` ediyor.** 30 test fonksiyonundaki 115 kontrolun hicbiri pytest'e hukum bildirmiyordu; "30 passed" yalnizca fonksiyonlarin cokmedigini soyluyordu. Duzeltmeden sonra yine `30 passed` — hepsi gercekten geciyormus. | Ilke 1, dorduncu kez: kural kodda vardi ama hukmu yoktu. Faz 6 boyunca her commit bu teste guvendi. |
 | 3.94a | **`eval.min_gt_for_cell: 10`.** GT'si bu sayidan az olan (sinif, boyut) hucreleri boyut bandi mAP'sinden cikaran `mAP*_minGT` sutunlari eklendi. `cells_dropped` `summary.json`'a yaziliyor ve ekrana gurultulu basiliyor. | `S.aureus`'un val'de tek bir buyuk kutusu var ve `mAP_large`'in dortte birini tasiyordu. Sifir kutulu hucre zaten dusuyordu, bir kutulu dusmuyordu. |
 | 3.94b | **`metrics.py` degistirilmedi, COCO-ozdes kaliyor.** Filtrelenmis okuma `evaluate.py`'de, COCO okumasinin YANINDA raporlaniyor. Makalenin boyut tablosu filtrelenmis sutunu kullanir. | Faz 2'nin iki bagimsiz uygulama dogrulamasi korunmali. COCO yanlis degil, bu veri kumesinde patolojik. |
 | 3.94c | **3.93d kapandi.** `mAP_large`'in oynakligi "buyuk kutular az goruntude yigilmis" degil, **bir sinifin boyut hucresinde tek kutu olmasi.** | Hipotez yerine olcum: `class_ap.csv`'nin `n_GT_large` sutunu. |

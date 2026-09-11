@@ -10,8 +10,8 @@
 #   3. Installs PyTorch (CUDA) + Ultralytics + the metrics dependencies
 #   4. Verifies the GPU from inside torch, suggests a batch size based on VRAM
 #   5. Runs both sanity suites as a GATE
-#        src/eval/test_metrics.py       36 checks (42 with pycocotools)
-#        src/generate/test_generate.py  61 checks
+#        src/eval/test_metrics.py       50 checks (pycocotools cross-check included)
+#        src/generate/test_generate.py  65 checks
 #      A non-zero exit here means: do not start training.
 #
 # Idempotent: running it twice does no harm.

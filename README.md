@@ -77,7 +77,7 @@ src/make_splits.py           stratified, nested train/val/test splits
 
 src/eval/metrics.py          COCO-identical AP, size breakdown, counting metrics
 src/eval/evaluate.py         evaluation CLI
-src/eval/test_metrics.py     36 sanity checks (cross-validated vs pycocotools)
+src/eval/test_metrics.py     50 sanity checks (cross-validated vs pycocotools)
 
 src/generate/layout.py       where/what/how-big  -> synthetic coordinates
 src/generate/mask.py         coordinates -> inpainting mask + background
@@ -85,7 +85,7 @@ src/generate/tiles.py        native-resolution tiling; no colony may be split
 src/generate/adapt.py        LoRA adaptation of the inpainting model
 src/generate/inpaint.py      mask + background -> synthetic plate (run / bench)
 src/generate/species_check.py does a synthetic colony look like its label says?
-src/generate/test_generate.py 61 sanity checks
+src/generate/test_generate.py 65 sanity checks
 src/generate/exploration/    one-shot analyses behind the layout model
 
 scripts/train.py             training wrapper (logs time, VRAM, git commit)
@@ -95,9 +95,11 @@ scripts/collect.py           runs/ -> results/table.csv
 scripts/setup.sh             one-command environment setup + test gate
 ```
 
-`ARCHITECTURE.md` explains what each file does and, more importantly, *why each
-line is written the way it is*. `decisions.md` is the decision log — **in Turkish**,
-because the paper and the supervision are in Turkish.
+`CODE_MAP.md` is the file-by-file map: what each script does, in the order the
+data moves through them. `ARCHITECTURE.md` explains *why each line is written
+the way it is*. `decisions.md` is the decision log — **in Turkish**, because the
+paper and the supervision are in Turkish; it is the project's memory rather than
+its documentation, and the English files above cover what a reader needs.
 
 ---
 
