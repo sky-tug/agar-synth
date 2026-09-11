@@ -1,11 +1,11 @@
 ========================================================================
-COLLECTED RESULTS   (2026-09-10T01:56:11+00:00)
+COLLECTED RESULTS   (2026-09-11T19:00:59+00:00)
 ========================================================================
   source            : /home/yusuf/agar-synth/runs
-  runs              : 8
-  table rows        : 8  (run x split)
-  total GPU-hours   : 30.21
-  evaluated         : 8 / 8
+  runs              : 10
+  table rows        : 10  (run x split)
+  total GPU-hours   : 35.53
+  evaluated         : 10 / 10
 
   table -> /home/yusuf/agar-synth/results/table.csv
   raw   -> /home/yusuf/agar-synth/results/raw/

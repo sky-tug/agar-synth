@@ -210,7 +210,7 @@ Phase 2  real-data baseline         done   mAP50-95 = 0.699
 Phase 3  synthetic pipeline         done   4 levels: layout · bg pool · crops · LoRA
 Phase 4  texture gate               FAILED measured, and the gate's own blind spot measured
 Phase 5  freeze the protocol        done   tag faz5-bitti
-Phase 6  52 training runs         running  8 done · 30.2 GPU-hours
+Phase 6  52 training runs         running  10 done · 35.5 GPU-hours
 Phase 7  ablations (9 runs)          ---
 ```
 
@@ -218,13 +218,20 @@ Phase 7  ablations (9 runs)          ---
 
 The real-data baseline, five seeds on val:
 
-| arm | seeds | mAP50-95 | sigma |
-|---|---|---|---|
-| G100 (100% real) | 5 | 0.6990 | 0.0036 |
-| G50 (50% real) | 3 so far | 0.6805 | 0.0024 |
+| arm | images | seeds | mAP50-95 | sigma | own threshold |
+|---|---|---|---|---|---|
+| G100 (100% real) | 2,987 | 5 | 0.69901 | 0.00356 | 0.00711 |
+| G50 (50% real) | 1,491 | 5 | 0.68091 | 0.00284 | 0.00569 |
 
-Halving the real training set costs **0.0185 mAP50-95** — 2.6x the significance
-threshold, so the gap is real.
+Halving the real training set costs **0.01810 mAP50-95** — larger than either
+arm's own threshold (t ≈ 8.9, df = 8), so the gap is real. But read the size of
+it: 1,496 images' worth of annotation effort is worth 2.6% relative on the
+primary metric. The gap synthetic data has to close is small.
+
+For small objects the loss looks roughly twice as large (0.0302) — but
+`mAP_small` carries its own spread, pooled 2σ ≈ 0.030, so the difference sits
+right at the boundary and cannot be claimed. The same lesson as the mAP75 case
+below, now on the substitution curve itself.
 
 **The significance threshold is itself a measured quantity, and it was the first
 output of the grid rather than the last.** `eval.significant_diff_threshold`

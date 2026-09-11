@@ -184,6 +184,12 @@ A read-through of the whole repository found 25 issues. The ones that became dec
 | 3.95b | `KOD_HARITASI.md` → **`CODE_MAP.md`** (English, real filenames) | The old map did not know half of the 8,985 lines: filenames had been translated and the map had not been updated. A map that gives wrong information is worse than no map. |
 | 3.95c | **Check count measured: 50 + 65 = 115.** README, `setup.sh` and 3.94 aligned to it | Four sources gave four different numbers; none had been obtained by running the suites. |
 | 3.95d | Stale Turkish documents removed; `decisions.md` → `decisions.tr.md` with this English summary beside it | Two of the removed files were marked "provisional" in their own text; one lost its purpose when the translation it guided was completed. |
+| 3.95e | **Commit messages and tags translated too.** 35 commits rewritten with `filter-repo --message-callback`; `faz5-protokol` → `phase5-protocol`, `faz5-bitti` → `phase5-done` | Filenames and file contents were English, but the file listing showed a Turkish commit message beside every row — the most visible place of all. |
+| 3.96 | **G50 threshold: 0.00569** (2σ, five seeds, val, mAP50-95). Arm mean 0.68091 | Every arm of `main_grid` gets five seeds and its own measured threshold. |
+| 3.96a | **First point of the substitution curve: halving the real training data costs 0.01810 mAP50-95.** The gap exceeds both arms' thresholds (t ≈ 8.9, df = 8) — it is real. Relative loss 2.6% | 2,987 → 1,491 images. The gap synthetic data has to close is small, which is the favourable case for the substitution claim. |
+| 3.96b | **The loss looks larger for small objects (0.0302) but cannot be distinguished** — pooled 2σ ≈ 0.030, right at the boundary | 3.93a's lesson, repeated on the substitution curve: direction consistent, magnitude not claimable. |
+| 3.96c | `G50_s0` and `G50_s1` printing the same value is **rounding**, not a seeding fault. `summary.json` rounds to five places; the two runs differ on every other measure | Two identical values would have depressed σ. Checked and ruled out; full values live under `results/raw/`. |
+| 3.96d | **`threshold.py` reads the COCO column for sub-metrics, not the `minGT` one.** To be fixed | 3.94a added that column precisely to correct this pathology, and the threshold tool is unaware of it. |
 
 ---
 

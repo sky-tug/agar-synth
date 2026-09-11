@@ -158,12 +158,25 @@
       "max_det": 1000,
       "nms_iou": 0.7,
       "conf_thr_count": 0.35,
+      "conf_thr_locked": 0.35,
+      "conf_thr_overridden": false,
       "mAP50-95": 0.69875,
       "mAP50": 0.97323,
       "mAP75": 0.84875,
       "mAP_small": 0.57419,
       "mAP_medium": 0.6474,
       "mAP_large": 0.75252,
+      "min_gt_for_cell": 10,
+      "mAP_small_minGT": 0.57419,
+      "mAP_medium_minGT": 0.6474,
+      "mAP_large_minGT": 0.7367,
+      "cells_dropped": [
+        {
+          "class": "S.aureus",
+          "band": "large",
+          "n_GT": 1
+        }
+      ],
       "AP_S.aureus": 0.69009,
       "AP_B.subtilis": 0.65959,
       "AP_P.aeruginosa": 0.72361,
@@ -174,8 +187,8 @@
       "sMAPE": 5.12107,
       "ME": -0.15625,
       "count_r": 0.99054,
-      "inference_sec": 35.677,
-      "ms_per_image": 55.75
+      "inference_sec": 60.68,
+      "ms_per_image": 94.81
     }
   }
 }

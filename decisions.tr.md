@@ -2150,3 +2150,114 @@ projenin hafizasi; cevirmek anlam kaymasi riski tasirdi.
 
 `DECISIONS.md` bu dosyanin Ingilizce ozetidir; tam kayit burasidir. Ikisi
 celisirse **bu dosya** gecerlidir, cunku ozet argumani degil sonucunu tasiyor.
+
+---
+
+## Ikame egrisinin ilk noktasi — G50 tamamlandi (11 Eylul)
+
+G50 kolu bes tohuma tamamlandi. Faz 6'nin ilk gercek sonucu burada: gercek
+egitim verisi yariya indiginde ne kaybediliyor.
+
+### Olcum
+
+```
+kosu       mAP50-95   epoch   GPU-sa
+G50_s0      0,67911    120     3,14
+G50_s1      0,67911    106     2,66
+G50_s2      0,68333    109     2,67
+G50_s3      0,68461    107     2,81
+G50_s4      0,67840     99     2,51
+ortalama    0,68091           13,79 toplam
+
+sigma                  0,00284    %90 araligi  0,00185 – 0,00674
+esik = 2 * sigma       0,00569    %90 araligi  0,00369 – 0,01349
+```
+
+### Hukum: fark gercek
+
+```
+        n   goruntu   mAP50-95    sigma     kendi esigi
+G100    5     2.987    0,69901   0,00356      0,00711
+G50     5     1.491    0,68091   0,00284      0,00569
+──────────────────────────────────────────────────────
+fark                   0,01810
+```
+
+Fark **her iki kolun esiginden de buyuk**: G100'unkinin 2,5 kati, G50'ninkinin
+3,2 kati. Iki orneklemli karsilastirmada t ≈ 8,9 (df = 8). Ayirt ediliyor.
+
+**Ama asil okunmasi gereken buyuklugu.** 1.496 goruntuluk etiketleme emegi ana
+metrikte **0,0181** ediyor — goreli olarak %2,6. Sentetik verinin kapatmasi
+gereken acik kucuk; bu, makalenin ikame argumani icin iyi bir zemin, cunku
+kapatilabilir bir aciktan soz ediyoruz.
+
+### Kucuk nesnelerde kayip daha buyuk — ama ayirt edilemiyor
+
+```
+              G100      G50      fark
+mAP50-95     0,5742   0,5440    0,0302     <- kucuk nesne
+mAP50-95     0,6990   0,6809    0,0181     <- ana metrik
+```
+
+Kucuk nesnelerdeki kayip ana metrigin neredeyse iki kati. Ama `mAP_small`'in
+kendi yayilimi da buyuk (G50'de σ = 0,0186, G100'de 0,0098); birlesik 2σ ≈
+0,030 ve fark 0,0302 — tam sinirda. Soylenebilecek olan: *kucuk nesnelerde
+kayip daha buyuk gorunuyor, ama bes tohumla ayirt edilemiyor.* 3.93a ile ayni
+ders, bu kez ikame egrisi uzerinde.
+
+### Yanlis alarm — ve neden bakmak gerekiyordu
+
+`G50_s0` ve `G50_s1` bes ondalik basamaga kadar ayni cikti (0,67911). Farkli
+tohumlarin ayni sonucu vermesi tohum mekanizmasinin calismadigi anlamina
+gelebilirdi ve esigi dogrudan bozardi — iki ozdes deger σ'yi oldugundan kucuk
+gosterir.
+
+Denetlendi, **tesadufmus:**
+
+```
+          epoch   GPU-sa   Ultralytics mAP   mAP50   mAP75   MAE
+G50_s0     120     3,14       0,68150       0,96717 0,81635 0,772
+G50_s1     106     2,66       0,68350       0,96566 0,81193 1,116
+```
+
+Iki kosu her olcutte farkli. Yalnizca `mAP50-95` ayni gorunuyor, cunku
+`summary.json` degerleri **bes basamaga yuvarliyor** — 0,679105 ile 0,679114
+ayni satira duser. σ uzerindeki etkisi 1e-5 mertebesinde, ihmal edilebilir.
+
+Kayda deger olan: yuvarlama, iki kosunun ayni sanilmasina yetecek kadar kaba.
+Ileride tohum sayisi arttikca bu tur cakismalar daha sik gorunecek; sayilar
+`results/raw/` altinda tam duruyor, gerekirse oradan okunur.
+
+### Acik kalan — `threshold.py` yanlis sutunu okuyor
+
+Alt metrik tablosunda `mAP_large` icin σ = 0,0911 gorunuyor (ana metrigin 32
+kati). Ama bu **COCO sutunu**; 3.94a'da eklenen `mAP_large_minGT` sutunu tam
+olarak bu patolojiyi (tek kutuluk `S.aureus` hucresi) duzeltmek icin var ve
+`threshold.py` onu okumuyor. Duzeltilecek: `SECONDARY` listesi minGT
+surumlerini de almali.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.96 | **G50 esigi: 0,00569** (2σ, bes tohum, val, mAP50-95). Kol ortalamasi 0,68091. | `main_grid` her kol icin bes tohum sart kosuyor; kol basina kendi esigi olculuyor. |
+| 3.96a | **Ikame egrisinin ilk noktasi: gercek veri yariya inince mAP50-95 0,01810 dusuyor.** Fark her iki kolun esiginden de buyuk (t ≈ 8,9, df = 8) — ayirt ediliyor. Goreli kayip %2,6. | 2.987 → 1.491 goruntu. Kapatilmasi gereken acigin kucuk olmasi, sentetik ikame iddiasinin lehine bir zemin. |
+| 3.96b | **Kucuk nesnelerde kayip daha buyuk gorunuyor (0,0302) ama ayirt edilemiyor** — birlesik 2σ ≈ 0,030 ile tam sinirda. | 3.93a'nin dersi ikame egrisinde tekrarlandi: yon tutarli, buyukluk soylenemez. |
+| 3.96c | `G50_s0` ve `G50_s1`'in ayni gorunmesi **yuvarlama**, tohum hatasi degil. `summary.json` bes basamaga yuvarliyor; iki kosu diger butun olcutlerde farkli. | Ozdes iki deger σ'yi dusuk gosterirdi; denetlendi ve elendi. Tam degerler `results/raw/` altinda. |
+| 3.96d | **`threshold.py` alt metriklerde COCO sutununu okuyor, `minGT` sutununu degil.** Duzeltilecek. | 3.94a tam da o patolojiyi duzeltmek icin eklenmisti; esik araci ondan habersiz. |
+| 3.96e | **Commit mesajlari ve etiketler Ingilizce'ye cevrildi** (3.95e'nin devami): 35 commit `filter-repo --message-callback` ile yeniden yazildi, `faz5-protokol` → `phase5-protocol`, `faz5-bitti` → `phase5-done`. | Depo dosya adlarinda ve iceriklerinde Ingilizce'ydi ama dosya listesinde her satirin yaninda Turkce commit mesaji gorunuyordu — en gorunur yer orasi. |
+
+### Faz 6'da neredeyiz
+
+```
+✅ G100  s0..s4     5 kosu · 21,74 GPU-sa · esik 0,00711
+✅ G50   s0..s4     5 kosu · 13,79 GPU-sa · esik 0,00569
+⬜ G25   s0..s4     5 kosu
+⬜ G10   s0..s4     5 kosu
+⬜ B_G25 C_G25      6 kosu
+⬜ sentetik kollar 26 kosu   LoRA karari (3.89) bekliyor
+────────────────────────────────────────────────
+   10/52 kosu · 35,53 GPU-saat
+```
+
+G50 kosulari G100'den hizli (ortalama 2,76 GPU-sa, G100'de 4,35): veri yarisi
+kadar, epoch suresi de oyle. G25 ve G10 daha da hizli olacak — kalan gercek-veri
+kollari icin tahmin kabaca 25 GPU-saat.

@@ -205,6 +205,17 @@
       "mAP_small": 0.56722,
       "mAP_medium": 0.62424,
       "mAP_large": 0.54265,
+      "min_gt_for_cell": 10,
+      "mAP_small_minGT": 0.56722,
+      "mAP_medium_minGT": 0.62424,
+      "mAP_large_minGT": 0.72353,
+      "cells_dropped": [
+        {
+          "class": "S.aureus",
+          "band": "large",
+          "n_GT": 1
+        }
+      ],
       "AP_S.aureus": 0.67916,
       "AP_B.subtilis": 0.64912,
       "AP_P.aeruginosa": 0.69442,
@@ -215,8 +226,8 @@
       "sMAPE": 4.48717,
       "ME": -0.22344,
       "count_r": 0.98816,
-      "inference_sec": 58.091,
-      "ms_per_image": 90.77
+      "inference_sec": 56.619,
+      "ms_per_image": 88.47
     }
   }
 }
