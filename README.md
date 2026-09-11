@@ -104,7 +104,7 @@ because the paper and the supervision are in Turkish.
 ## Quick start
 
 ```bash
-git clone https://github.com/<user>/agar-synth
+git clone https://github.com/sky-tug/agar-synth
 cd agar-synth
 bash scripts/setup.sh          # env + deps + both test suites must pass
 ```
