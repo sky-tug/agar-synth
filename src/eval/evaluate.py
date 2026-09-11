@@ -60,6 +60,11 @@ MIN_CONF = 0.001
 FALLBACK_MAX_DET = 1000    # AGAR has up to 125 colonies on a plate -> keep it generous
 FALLBACK_NMS_IOU = 0.7
 
+# Decision 3.94: a (class, size) cell with fewer GT boxes than this is left out
+# of the size-band mAP that is reported ALONGSIDE the COCO-identical one. Read
+# from eval.min_gt_for_cell; the value below is only a fallback.
+FALLBACK_MIN_GT = 10
+
 
 def stems_of(data: Path, split: str) -> list[str]:
     # Same rule as train.py: paths are resolved relative to ROOT, not relative
@@ -130,6 +135,55 @@ def read_locked_conf(config: Path):
     e = (yaml.safe_load(config.read_text(encoding="utf-8")) or {}).get("eval", {}) or {}
     v = e.get("conf_thr")
     return None if v is None else float(v)
+
+
+def read_min_gt(config: Path) -> int:
+    """
+    Smallest GT count a (class, size) cell needs before its AP is averaged in
+    (decision 3.94). 0 disables the rule.
+    """
+    if not config.exists():
+        return FALLBACK_MIN_GT
+    import yaml
+    e = (yaml.safe_load(config.read_text(encoding="utf-8")) or {}).get("eval", {}) or {}
+    v = e.get("min_gt_for_cell")
+    return FALLBACK_MIN_GT if v is None else int(v)
+
+
+def map_with_min_gt(ap, n_gt, min_gt: int):
+    """
+    mAP over a size band, ignoring classes with too few ground-truth boxes.
+
+    WHY (decision 3.94): COCO averages per-class AP over the classes present in
+    a size band, whatever their support. In AGAR's val split S.aureus has
+    exactly ONE large box. Its AP is then the binary outcome of a single
+    detection -- 0.8 in one seed, 0.0 in the next -- and it carries a full
+    quarter of mAP_large. Measured across five G100 seeds, mAP_large has
+    sigma 0.0668, 18.8x the primary metric; that spread is very largely this
+    one box (3.93d).
+
+    COCO is not wrong, it is faithful to its own definition, and `metrics.py`
+    stays identical to it -- the two-implementation agreement of Phase 2 must
+    not be broken. This function is a SECOND, reported alongside, reading.
+
+    A class with zero boxes in the band is already NaN and out of the average;
+    a class with one box was not. Zero and one do not deserve different
+    treatment, and that inconsistency is what this rule removes.
+
+    Returns (value, dropped) where dropped is [(class_index, n_gt), ...] for
+    cells that had boxes but too few of them.
+    """
+    ap = np.asarray(ap, dtype=float)
+    n = np.asarray(n_gt)
+    if min_gt <= 0:
+        keep = np.ones(len(n), dtype=bool)
+    else:
+        keep = n >= min_gt
+    dropped = [(i, int(n[i])) for i in range(len(n))
+               if not keep[i] and n[i] > 0 and not np.isnan(ap[i])]
+    vals = ap[keep]
+    vals = vals[~np.isnan(vals)]
+    return (float(vals.mean()) if vals.size else float("nan")), dropped
 
 
 def fill_preds_from_model(images, data: Path, weights: str, imgsz: int,
@@ -301,9 +355,20 @@ def main():
     }, index=CLASS_ORDER).round(4)
     class_tab.to_csv(out / "class_ap.csv")
 
+    # --- size bands, two readings side by side (decision 3.94) ---
+    min_gt = read_min_gt(Path(args.config))
+    filtered, dropped_cells = {}, []
+    for a in AREA_RANGES_COCO:
+        v, drop = map_with_min_gt(det["ap"][a], det["n_gt"][a], min_gt)
+        filtered[a] = v
+        dropped_cells += [{"class": CLASS_ORDER[i], "band": a, "n_GT": n}
+                          for i, n in drop]
+
     size_tab = pd.DataFrame({
         a: {"mAP50-95": det["map"][a], "mAP50": det["map50"][a],
-            "mAP75": det["map75"][a], "n_GT": int(det["n_gt"][a].sum())}
+            "mAP75": det["map75"][a],
+            f"mAP50-95_minGT{min_gt}": filtered[a],
+            "n_GT": int(det["n_gt"][a].sum())}
         for a in AREA_RANGES_COCO
     }).T.round(4)
     size_tab.to_csv(out / "size_ap.csv")
@@ -349,6 +414,13 @@ def main():
         "mAP_small": det["map"]["small"],
         "mAP_medium": det["map"]["medium"],
         "mAP_large": det["map"]["large"],
+        # --- same bands, thin cells left out (3.94). The three above stay
+        #     COCO-identical; these are the ones the paper's size table uses.
+        "min_gt_for_cell": min_gt,
+        "mAP_small_minGT": filtered["small"],
+        "mAP_medium_minGT": filtered["medium"],
+        "mAP_large_minGT": filtered["large"],
+        "cells_dropped": dropped_cells,
         # --- primary metric per class ---
         **{f"AP_{c}": float(det["ap"]["all"][i]) for i, c in enumerate(CLASS_ORDER)},
         # --- counting ---
@@ -366,6 +438,20 @@ def main():
     # ---------------- To the screen ----------------
     print("\n=== SIZE BREAKDOWN ===")
     print(size_tab.to_string())
+    if dropped_cells:
+        # Loud on purpose (principle 2). A cell this thin quietly averaged into
+        # mAP is exactly what made mAP_large unusable before 3.94.
+        print("\033[1;33m%s\033[0m" % (
+            f"! size cells with fewer than {min_gt} GT boxes, left out of "
+            f"the mAP50-95_minGT{min_gt} column:"))
+        for c in dropped_cells:
+            print("\033[1;33m%s\033[0m" % (
+                f"    {c['class']}/{c['band']}  n_GT={c['n_GT']}"))
+        for a in AREA_RANGES_COCO:
+            if any(c["band"] == a for c in dropped_cells):
+                print("\033[1;33m%s\033[0m" % (
+                    f"    {a}: {det['map'][a]:.4f} (COCO) -> "
+                    f"{filtered[a]:.4f} (minGT{min_gt})"))
     print("\n=== PER CLASS ===")
     print(class_tab[["AP50-95", "AP50", "AP_small", "AP_medium", "AP_large",
                      "n_GT"]].to_string())

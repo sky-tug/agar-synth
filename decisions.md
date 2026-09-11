@@ -1877,3 +1877,145 @@ karsilastirmayi oldugundan zayif gosterirdi.
 Bes kosu bitti, kirk yedi kaldi. Ama gridin geri kalanini yorumlanabilir kilan
 sayi artik elimizde — ve bu sayi olmadan yazilacak olan iki cumleden biri
 zaten yanlis cikti.
+
+---
+
+## Iki kontrol de hukumsuzmus — testler ve mAP_large (11 Eylul)
+
+Ayni gun, birbirinden bagimsiz iki yerde ayni kalip bulundu: **kontrol var,
+hukmu yok.** Faz 5 bu kalibi uc yerde bulup duzeltmisti (3.88); bunlar dorduncu
+ve besinci.
+
+### 1. Testler hicbir seyi dogrulamiyordu
+
+`test_metrics.py` ve `test_generate.py` sonuclari `check()` ile bildiriyor:
+
+```python
+def check(name, condition, detail=""):
+    (PASSED if condition else FAILED).append(name)
+    print(f"  [{'OK ' if condition else 'FAIL'}] {name}" + ...)
+```
+
+Listeye ekliyor, ekrana yaziyor, **geri donuyor.** `main()` sonunda `FAILED`
+doluysa `sys.exit(1)` var — ama pytest `main()`'i cagirmiyor, `test_*`
+fonksiyonlarini tek tek cagiriyor. Fonksiyon istisna firlatmadigi icin pytest
+yesil yaziyor. `-q` kipinde `print` ciktisi da gizlendigi icin `FAIL` satirini
+kimse gormuyor.
+
+```
+test_metrics.py     11 test fonksiyonu · 37 kontrol · 0 assert
+test_generate.py    19 test fonksiyonu · 67 kontrol · 0 assert
+────────────────────────────────────────────────────────────
+                    30 fonksiyon   104 kontrol   sifir hukum
+```
+
+Yani "30 passed", **30 fonksiyonun cokmeden calistigi** anlamina geliyordu;
+icindeki 104 kontrolun ne buldugu anlamina degil. Kasitli yanlis bir kontrolle
+(`2+2 == 5`) dogrulandi: pytest `1 passed` yazdi.
+
+Faz 5'in "97 kontrol kosturulamiyor → 30/30 geciyor" bilancosu bu yuzden fazla
+iyimserdi. Faz 6 boyunca her commit oncesi bu testlere guvenildi.
+
+**Duzeltme:** `check()` pytest altindayken `assert` ediyor, komut satirindan
+calistirildiginda eski davranisini (tum listeyi topla, sonunda `exit(1)`)
+koruyor:
+
+```python
+_UNDER_PYTEST = "pytest" in sys.modules
+...
+    if _UNDER_PYTEST:
+        assert condition, name + (f" -- {detail}" if detail else "")
+```
+
+**Sonuc:** duzeltmeden sonra `30 passed`. Yani 104 kontrolun hepsi gercekten
+geciyormus. Hicbir sey bozuk degildi — ama bunu ilk kez biliyoruz. Kanit ile
+sansin farki tam olarak budur.
+
+### 2. mAP_large'in oynakligi: tek bir kutu — 3.93d cevaplandi
+
+Karar 3.93d `large` sinifinin neden ana metrikten 18,8 kat oynak oldugunu
+**olculecek is** olarak birakmisti. `class_ap.csv`'nin GT sayimi sutunlari
+cevabi dogrudan veriyor:
+
+```
+sinif           n_GT_large
+S.aureus              1        <-- BIR TANE
+B.subtilis          524
+P.aeruginosa       1962
+E.coli             3506
+C.albicans            0        (NaN, ortalamaya girmiyor)
+```
+
+`S.aureus`'un val bolunmesinde **tek bir** buyuk kutusu var. O kutunun AP'si
+tek bir tespitin ikili sonucundan ibaret:
+
+```
+kosu       S.aureus AP_large
+G100_s0          0,8
+G100_s4          0,2
+G50_s0           0,7
+G50_s1           0,8
+G50_s2           0,0
+```
+
+Ve `mAP_large` dort sinifin duz ortalamasi — yani **metrigin dortte biri tek
+bir kutuya dayaniyor.** Bu kutu 0 ile 0,8 arasinda ziplayinca `mAP_large` 0,2
+oynuyor; bes G100 tohumunda gozlenen 0,165'lik yayilimin neredeyse tamami bu.
+Hipotez ("buyuk kutular az goruntude yigilmis") yanlismis; sebep dogrudan
+**bir sinifin boyut hucresinin neredeyse bos olmasi.**
+
+Ayrica bir tutarsizlik goruldu: `C.albicans` sifir kutuyla hesaptan dusuyor
+(NaN), `S.aureus` bir kutuyla dusmuyor. Sifir ile bir arasinda ilkesel bir
+fark yok.
+
+**Duzeltme — ve neyin duzeltilMEDIGI:**
+
+`metrics.py` **degistirilmedi.** COCO de ayni sekilde davranir; metrics.py
+yanlis degil, kendi tanimina sadik. Faz 2'nin "iki bagimsiz uygulama ustu"
+dogrulamasi (Ultralytics 0,697 · metrics.py 0,6988) bozulmamali.
+
+Bunun yerine `evaluate.py` **ikinci bir okuma** raporluyor: `min_gt_for_cell`
+kutudan az GT'si olan (sinif, boyut) hucreleri ortalamadan cikaran
+`mAP*_minGT` sutunlari. Ikisi yan yana duruyor; makalenin boyut tablosu
+filtrelenmis olani kullanacak.
+
+```
+G50_s2 large   0,5427 (COCO)  ->  0,7235 (minGT10)
+```
+
+Esik 10 secildi: AP egrisi onlarca ornek ister, tek haneli orneklemde AP bir
+gosterge degil. Verideki bir sonraki en kucuk hucre 103 kutu oldugu icin 10 ile
+100 arasindaki her esik ayni sonucu verir — secim sonucu degistirmiyor.
+
+Dusen hucreler `summary.json`'a `cells_dropped` olarak yaziliyor ve ekrana
+sari renkte basiliyor (ilke 2).
+
+### Yeni test — ve bu kez hukmu var
+
+`test_min_gt_cell`, G50_s2'nin gercek `large` satiriyla yedi kontrol yapiyor:
+filtrelemenin dogru sonucu verdigi, `min_gt=0`'in COCO'yu birebir yeniden
+urettigi, bos bandin NaN kaldigi, hicbir sey dusmediginde listenin bos oldugu.
+Testler 30'dan **31**'e cikti.
+
+Sirasi onemli: bu test, testlerin hukum vermeye baslamasindan **sonra**
+yazildi. Once yazilsaydi yine yesil gorunurdu.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.94 | **`check()` pytest altinda `assert` ediyor.** 30 test fonksiyonundaki 104 kontrolun hicbiri pytest'e hukum bildirmiyordu; "30 passed" yalnizca fonksiyonlarin cokmedigini soyluyordu. Duzeltmeden sonra yine `30 passed` — hepsi gercekten geciyormus. | Ilke 1, dorduncu kez: kural kodda vardi ama hukmu yoktu. Faz 6 boyunca her commit bu teste guvendi. |
+| 3.94a | **`eval.min_gt_for_cell: 10`.** GT'si bu sayidan az olan (sinif, boyut) hucreleri boyut bandi mAP'sinden cikaran `mAP*_minGT` sutunlari eklendi. `cells_dropped` `summary.json`'a yaziliyor ve ekrana gurultulu basiliyor. | `S.aureus`'un val'de tek bir buyuk kutusu var ve `mAP_large`'in dortte birini tasiyordu. Sifir kutulu hucre zaten dusuyordu, bir kutulu dusmuyordu. |
+| 3.94b | **`metrics.py` degistirilmedi, COCO-ozdes kaliyor.** Filtrelenmis okuma `evaluate.py`'de, COCO okumasinin YANINDA raporlaniyor. Makalenin boyut tablosu filtrelenmis sutunu kullanir. | Faz 2'nin iki bagimsiz uygulama dogrulamasi korunmali. COCO yanlis degil, bu veri kumesinde patolojik. |
+| 3.94c | **3.93d kapandi.** `mAP_large`'in oynakligi "buyuk kutular az goruntude yigilmis" degil, **bir sinifin boyut hucresinde tek kutu olmasi.** | Hipotez yerine olcum: `class_ap.csv`'nin `n_GT_large` sutunu. |
+| 3.94d | `test_min_gt_cell` eklendi (7 kontrol). Test sayisi 30 → 31. | Yeni kural bir yorum degil, calisma zamani kontrolu. Ve artik testlerin hukmu var. |
+
+### Bekleyen is
+
+```
+10 kosunun yeniden degerlendirilmesi   minGT sutunlari eski summary.json'larda yok
+                                       her biri ~1 dk, G50 zinciri bitince
+Faz 2 boyut tablosunun yeniden yazimi  artik filtrelenmis sutunla (3.93b + 3.94b)
+```
+
+Ana metrik `mAP50-95` ve esik **degismiyor** — hicbir sinifin `all` bandinda az
+kutusu yok (en dusuk 627). Gridin sonuclari ve 3.93'un esigi oldugu gibi
+gecerli.

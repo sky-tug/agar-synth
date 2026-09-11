@@ -39,9 +39,23 @@ import inpaint as I         # noqa: E402
 PASSED, FAILED = [], []
 
 
+# Under pytest a failed check MUST fail the test (decision 3.94).
+#
+# Before this line existed, `check` only appended to a list and returned. Run
+# from the command line `main()` looked at FAILED and exited 1, but pytest does
+# not call `main()` -- it calls the `test_*` functions one by one, sees no
+# exception, and reports green. The two test files hold 104 checks inside 30
+# test functions; "30 passed" meant "30 functions ran without crashing", not
+# "104 checks found what they expected". Principle 1, fourth occurrence: the
+# rule existed in the code but had no verdict.
+_UNDER_PYTEST = "pytest" in sys.modules
+
+
 def check(name, condition, detail=""):
     (PASSED if condition else FAILED).append(name)
     print(f"  [{'OK ' if condition else 'FAIL'}] {name}" + (f"   {detail}" if detail else ""))
+    if _UNDER_PYTEST:
+        assert condition, name + (f" -- {detail}" if detail else "")
 
 
 def sample_params(gamma=1.0, n_min=20, n_max=20, diameter=0.05):

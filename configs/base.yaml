@@ -148,6 +148,21 @@ eval:
   # must be judged by its own 2*sigma -- for mAP_large that is 0.1335, thirty
   # times this value. See results/threshold.json for the full table (3.93a).
   significant_diff_threshold: 0.007112    # 5 seeds, see results/threshold.json
+
+  # Smallest GT count a (class, size) cell needs before its AP is averaged
+  # into the size-band mAP -- decision 3.94.
+  #
+  # COCO averages per-class AP over whatever classes are present in a band,
+  # however few boxes they have. In AGAR's val split S.aureus has exactly ONE
+  # large box; its AP is then the binary outcome of a single detection (0.8 in
+  # one seed, 0.0 in the next) and it carried a quarter of mAP_large. Measured
+  # over five G100 seeds, mAP_large's sigma was 0.0668 -- 18.8x the primary
+  # metric -- and that spread was very largely this one box.
+  #
+  # metrics.py stays COCO-identical (the two-implementation agreement of Phase
+  # 2 must hold). evaluate.py reports mAP*_minGT ALONGSIDE it; the paper's size
+  # table uses the filtered column. 0 disables the rule.
+  min_gt_for_cell: 10
   # The counting conf threshold is chosen on VAL, written here, and applied to
   # the test that way.
   #

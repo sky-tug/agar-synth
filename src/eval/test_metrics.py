@@ -28,9 +28,23 @@ from src.eval.metrics import (  # noqa: E402
 PASSED, FAILED = [], []
 
 
+# Under pytest a failed check MUST fail the test (decision 3.94).
+#
+# Before this line existed, `check` only appended to a list and returned. Run
+# from the command line `main()` looked at FAILED and exited 1, but pytest does
+# not call `main()` -- it calls the `test_*` functions one by one, sees no
+# exception, and reports green. The two test files hold 104 checks inside 30
+# test functions; "30 passed" meant "30 functions ran without crashing", not
+# "104 checks found what they expected". Principle 1, fourth occurrence: the
+# rule existed in the code but had no verdict.
+_UNDER_PYTEST = "pytest" in sys.modules
+
+
 def check(name, condition, detail=""):
     (PASSED if condition else FAILED).append(name)
     print(f"  [{'OK ' if condition else 'FAIL'}] {name}" + (f"   {detail}" if detail else ""))
+    if _UNDER_PYTEST:
+        assert condition, name + (f" -- {detail}" if detail else "")
 
 
 def box(x, y, w, h):
@@ -326,13 +340,46 @@ def test_pycocotools():
               f"ours={a:.5f} coco={b:.5f}")
 
 
+def test_min_gt_cell():
+    """
+    A (class, size) cell with almost no ground truth must not be averaged into
+    the size-band mAP (decision 3.94).
+
+    The numbers below are the real large-object row of G50_s2 on val. S.aureus
+    has exactly ONE large box there; its AP is the binary outcome of a single
+    detection and it was carrying a quarter of mAP_large.
+    """
+    from src.eval.evaluate import map_with_min_gt   # noqa: E402
+    print("\n[min_gt_for_cell]")
+    nan = float("nan")
+    ap = [0.0, 0.6827, 0.7218, 0.7661, nan]     # C.albicans has no large box
+    n_gt = [1, 524, 1962, 3506, 0]
+
+    v, dropped = map_with_min_gt(ap, n_gt, 10)
+    check("thin cell is left out", abs(v - 0.723533) < 1e-4, f"got {v:.6f}")
+    check("thin cell is reported", dropped == [(0, 1)], str(dropped))
+
+    v0, d0 = map_with_min_gt(ap, n_gt, 0)
+    check("min_gt=0 reproduces COCO", abs(v0 - 0.542650) < 1e-4, f"got {v0:.6f}")
+    check("min_gt=0 drops nothing", d0 == [], str(d0))
+
+    ve, de = map_with_min_gt([nan] * 5, [0] * 5, 10)
+    check("a band with no boxes is nan", ve != ve, str(ve))
+    check("an empty cell is not 'dropped'", de == [], str(de))
+
+    vk, dk = map_with_min_gt([0.5, 0.6], [100, 200], 10)
+    check("every cell above the floor", abs(vk - 0.55) < 1e-9, f"got {vk:.6f}")
+    check("nothing dropped when all pass", dk == [], str(dk))
+
+
 def main():
     print("=" * 62)
     print("SANITY TEST OF THE METRICS CODE")
     print("=" * 62)
     for f in (test_iou, test_perfect_prediction, test_half_detected, test_iou_threshold,
               test_false_alarm, test_size_breakdown, test_counting, test_counting_empty,
-              test_conf_threshold, test_read_yolo_txt, test_pycocotools):
+              test_conf_threshold, test_read_yolo_txt, test_min_gt_cell,
+              test_pycocotools):
         f()
     print("\n" + "=" * 62)
     print(f"PASSED: {len(PASSED)}   FAILED: {len(FAILED)}")
