@@ -18,19 +18,46 @@
       "mean": 0.48607199999999995,
       "sigma": 0.00671880346490355,
       "own_threshold_2sigma": 0.0134376069298071,
-      "times_primary_sigma": 0.7033922223206479
+      "times_primary_sigma": 0.7033922223206479,
+      "column": "COCO (all size cells; see min_gt note)",
+      "prefer_instead": "mAP_small_minGT"
     },
     "mAP_medium": {
       "mean": 0.588032,
       "sigma": 0.009679592966648953,
       "own_threshold_2sigma": 0.019359185933297905,
-      "times_primary_sigma": 1.013357578255678
+      "times_primary_sigma": 1.013357578255678,
+      "column": "COCO (all size cells; see min_gt note)",
+      "prefer_instead": "mAP_medium_minGT"
     },
     "mAP_large": {
       "mean": 0.582032,
       "sigma": 0.06965610468580627,
       "own_threshold_2sigma": 0.13931220937161254,
-      "times_primary_sigma": 7.292304727930051
+      "times_primary_sigma": 7.292304727930051,
+      "column": "COCO (all size cells; see min_gt note)",
+      "prefer_instead": "mAP_large_minGT"
+    },
+    "mAP_small_minGT": {
+      "mean": 0.48607199999999995,
+      "sigma": 0.00671880346490355,
+      "own_threshold_2sigma": 0.0134376069298071,
+      "times_primary_sigma": 0.7033922223206479,
+      "column": "min_gt_for_cell filtered (3.94a) -- prefer this one"
+    },
+    "mAP_medium_minGT": {
+      "mean": 0.588032,
+      "sigma": 0.009679592966648953,
+      "own_threshold_2sigma": 0.019359185933297905,
+      "times_primary_sigma": 1.013357578255678,
+      "column": "min_gt_for_cell filtered (3.94a) -- prefer this one"
+    },
+    "mAP_large_minGT": {
+      "mean": 0.681878,
+      "sigma": 0.01068556830496157,
+      "own_threshold_2sigma": 0.02137113660992314,
+      "times_primary_sigma": 1.1186732393717804,
+      "column": "min_gt_for_cell filtered (3.94a) -- prefer this one"
     },
     "AP_S.aureus": {
       "mean": 0.6290699999999999,
@@ -63,6 +90,7 @@
       "times_primary_sigma": 1.2289339194755322
     }
   },
+  "missing_secondary": [],
   "values": {
     "G10_s0": 0.64575,
     "G10_s1": 0.62212,
@@ -88,7 +116,7 @@
   "resume_deviation_below_threshold_lower_bound": true,
   "split": "val",
   "runs_dir": "/home/yusuf/agar-synth/runs",
-  "date_utc": "2026-09-12T16:22:43+00:00",
+  "date_utc": "2026-09-12T20:19:08+00:00",
   "notes": [
     "[!] the counting threshold selected on val differs between runs: [0.35, 0.45]. mAP is unaffected (it is integrated over all confidences), so the threshold below stands. But the counting metrics (MAE / RMSE / sMAPE / ME) of these runs were computed with different thresholds and must NOT be compared seed to seed."
   ]
