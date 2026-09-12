@@ -1,0 +1,77 @@
+# Baseline M -- MOSAIC + MIXUP
+#
+# Rides on top of base.yaml:
+#   train.py --config configs/base.yaml --overlay configs/aug_m_mosaic_mixup.yaml
+# Only the augment block changes. Model, imgsz, epochs, seed -- all the same.
+#
+# WHY THIS FILE EXISTS (decision 3.98, 12 September 2026)
+# -------------------------------------------------------
+# This arm was originally written as `aug_c_copypaste.yaml`, and its own header
+# warned that Ultralytics' `copy_paste` may silently do nothing on the detect
+# task. It was checked before the runs were spent, and the warning was correct:
+#
+#   ultralytics/data/augment.py, CopyPaste.__call__ (8.4.118):
+#       if len(labels["instances"].segments) == 0 or self.p == 0:
+#           return labels
+#
+#   ultralytics/data/utils.py, verify_image_label: `segments` is populated ONLY
+#   when a label row has more than five columns (polygon format).
+#
+# Every label file in data/processed/labels/ has exactly five columns
+# (`awk '{print NF}' ... | sort -u` -> 5), so `segments` is always empty and
+# CopyPaste returns on its first line. `copy_paste: 0.3` was a no-op, and
+# `copy_paste_mode` never even got read -- the early return precedes the mode
+# branch.
+#
+# Running the arm under the name "copy-paste" would have produced exactly the
+# failure the old header named: a baseline that is silently ineffective,
+# inflating the apparent gain of diffusion. So the arm is named for what it
+# actually applies. Copy-paste will be measured separately and honestly, with
+# an offline implementation (paste colony crops onto real plates and move the
+# box with them); the two effects are then measured apart instead of confounded
+# in one arm, which is the better design anyway.
+#
+# WHAT THIS ARM ADDS OVER THE MAIN G ARMS
+# ----------------------------------------
+# The G arms already carry HSV jitter and both flips. Over Baseline B
+# (translate + scale) this arm adds mosaic and mixup. Say this explicitly in
+# the paper: "classical augmentation" here means translate/scale (B) and
+# mosaic/mixup (M), not an unbounded pipeline.
+
+augment:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  flipud: 0.5
+
+  # degrees stays 0.0 for the reason given in aug_b_classic.yaml (decision
+  # 3.32): rotation is legitimate for a plate, but Ultralytics re-derives an
+  # axis-aligned box from the rotated corners, and AGAR colonies are round with
+  # 96.9% square boxes -- rotation adds nothing and inflates the label.
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5            # CAUTION: colony size is a class cue; this arm
+                        # corrupts that cue deliberately, exactly as B does.
+                        # If M scores low, "classical augmentation does not
+                        # work" and "this augmentation breaks the size cue"
+                        # are two different readings and must be separated.
+  shear: 0.0
+  perspective: 0.0
+
+  mosaic: 1.0
+  close_mosaic: 10      # mosaic off for the last 10 epochs -- Ultralytics
+                        # recommendation; base.yaml sets 0 because mosaic is
+                        # off there, so this line has to override it.
+  mixup: 0.15
+  cutmix: 0.0
+
+  # Deliberately zero, and it would be zero in effect anyway (see the header).
+  # Leaving it at 0.3 would have put a number in args.yaml that does nothing --
+  # a rule without enforcement, which is the pattern this project keeps paying
+  # for (principle 1).
+  copy_paste: 0.0
+
+  erasing: 0.0
+  auto_augment: null
+  bgr: 0.0
