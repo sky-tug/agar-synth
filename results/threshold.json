@@ -3,84 +3,84 @@
   "n_seeds": 5,
   "secondary": {
     "mAP50": {
-      "mean": 0.9671620000000001,
-      "sigma": 0.003693943692045127,
-      "own_threshold_2sigma": 0.007387887384090254,
-      "times_primary_sigma": 1.2993946014834883
+      "mean": 0.93711,
+      "sigma": 0.011249944444307249,
+      "own_threshold_2sigma": 0.022499888888614497,
+      "times_primary_sigma": 1.1777578351562477
     },
     "mAP75": {
-      "mean": 0.8180799999999999,
-      "sigma": 0.004289650335400302,
-      "own_threshold_2sigma": 0.008579300670800604,
-      "times_primary_sigma": 1.5089424617041223
+      "mean": 0.7577480000000001,
+      "sigma": 0.0161785002395154,
+      "own_threshold_2sigma": 0.0323570004790308,
+      "times_primary_sigma": 1.69372884572852
     },
     "mAP_small": {
-      "mean": 0.54398,
-      "sigma": 0.018626399276295984,
-      "own_threshold_2sigma": 0.03725279855259197,
-      "times_primary_sigma": 6.552087601339453
+      "mean": 0.48607199999999995,
+      "sigma": 0.00671880346490355,
+      "own_threshold_2sigma": 0.0134376069298071,
+      "times_primary_sigma": 0.7033922223206479
     },
     "mAP_medium": {
-      "mean": 0.62637,
-      "sigma": 0.0019785095400325758,
-      "own_threshold_2sigma": 0.0039570190800651515,
-      "times_primary_sigma": 0.695967461777569
+      "mean": 0.588032,
+      "sigma": 0.009679592966648953,
+      "own_threshold_2sigma": 0.019359185933297905,
+      "times_primary_sigma": 1.013357578255678
     },
     "mAP_large": {
-      "mean": 0.63178,
-      "sigma": 0.09111076116463962,
-      "own_threshold_2sigma": 0.18222152232927924,
-      "times_primary_sigma": 32.04944121084829
+      "mean": 0.582032,
+      "sigma": 0.06965610468580627,
+      "own_threshold_2sigma": 0.13931220937161254,
+      "times_primary_sigma": 7.292304727930051
     },
     "AP_S.aureus": {
-      "mean": 0.671938,
-      "sigma": 0.010573486652944735,
-      "own_threshold_2sigma": 0.02114697330588947,
-      "times_primary_sigma": 3.7193667854984356
+      "mean": 0.6290699999999999,
+      "sigma": 0.011482615120258962,
+      "own_threshold_2sigma": 0.022965230240517925,
+      "times_primary_sigma": 1.2021161520323722
     },
     "AP_B.subtilis": {
-      "mean": 0.6378820000000001,
-      "sigma": 0.012553585941873353,
-      "own_threshold_2sigma": 0.025107171883746705,
-      "times_primary_sigma": 4.415893462928826
+      "mean": 0.584648,
+      "sigma": 0.020021732442523553,
+      "own_threshold_2sigma": 0.040043464885047106,
+      "times_primary_sigma": 2.096077218364985
     },
     "AP_P.aeruginosa": {
-      "mean": 0.700312,
-      "sigma": 0.005419605151669238,
-      "own_threshold_2sigma": 0.010839210303338476,
-      "times_primary_sigma": 1.9064193348199743
+      "mean": 0.644706,
+      "sigma": 0.021963943862612655,
+      "own_threshold_2sigma": 0.04392788772522531,
+      "times_primary_sigma": 2.2994075306935393
     },
     "AP_E.coli": {
-      "mean": 0.7574639999999999,
-      "sigma": 0.0029425720042167334,
-      "own_threshold_2sigma": 0.005885144008433467,
-      "times_primary_sigma": 1.0350894587239317
+      "mean": 0.7276,
+      "sigma": 0.005377769054171051,
+      "own_threshold_2sigma": 0.010755538108342101,
+      "times_primary_sigma": 0.562999192624082
     },
     "AP_C.albicans": {
-      "mean": 0.636968,
-      "sigma": 0.0024732711133233984,
-      "own_threshold_2sigma": 0.004946542226646797,
-      "times_primary_sigma": 0.8700065297633726
+      "mean": 0.599232,
+      "sigma": 0.011738778471374242,
+      "own_threshold_2sigma": 0.023477556942748484,
+      "times_primary_sigma": 1.2289339194755322
     }
   },
   "values": {
-    "G50_s0": 0.67911,
-    "G50_s1": 0.67911,
-    "G50_s2": 0.68333,
-    "G50_s3": 0.68461,
-    "G50_s4": 0.6784
+    "G10_s0": 0.64575,
+    "G10_s1": 0.62212,
+    "G10_s2": 0.63809,
+    "G10_s3": 0.64474,
+    "G10_s4": 0.63457
   },
-  "mean": 0.680912,
-  "spread_max_minus_min": 0.006210000000000049,
-  "sigma": 0.002842819023434327,
+  "mean": 0.637054,
+  "spread_max_minus_min": 0.02363000000000004,
+  "sigma": 0.009552001360971434,
   "sigma_ci90": [
-    0.0018458570818579011,
-    0.0067441778898923496
+    0.006202163842552726,
+    0.022660744793054317
   ],
-  "significant_diff_threshold": 0.005685638046868654,
+  "significant_diff_threshold": 0.01910400272194287,
   "threshold_ci90": [
-    0.0036917141637158022,
-    0.013488355779784699
+    0.012404327685105451,
+    0.04532148958610863
   ],
   "definition": "2 * sample stdev (ddof=1) of mAP50-95 across seeds",
   "resume_deviation": 0.0009,
@@ -88,9 +88,8 @@
   "resume_deviation_below_threshold_lower_bound": true,
   "split": "val",
   "runs_dir": "/home/yusuf/agar-synth/runs",
-  "date_utc": "2026-09-11T19:00:58+00:00",
+  "date_utc": "2026-09-12T16:22:43+00:00",
   "notes": [
-    "[!] the runs come from different commits: ['0a5fd6d', '88498d4', 'd385b62']. Check that nothing on the training path changed between them, otherwise code variance is being read as seed variance.",
-    "[!] the counting threshold selected on val differs between runs: [0.35, 0.4]. mAP is unaffected (it is integrated over all confidences), so the threshold below stands. But the counting metrics (MAE / RMSE / sMAPE / ME) of these runs were computed with different thresholds and must NOT be compared seed to seed."
+    "[!] the counting threshold selected on val differs between runs: [0.35, 0.45]. mAP is unaffected (it is integrated over all confidences), so the threshold below stands. But the counting metrics (MAE / RMSE / sMAPE / ME) of these runs were computed with different thresholds and must NOT be compared seed to seed."
   ]
 }

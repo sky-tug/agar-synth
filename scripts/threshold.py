@@ -65,8 +65,29 @@ CONF_LEVEL = 0.90
 # A sub-metric is judged by ITS OWN sigma, never by the headline threshold
 # (principle 4: what a gate does not measure).
 SECONDARY = ["mAP50", "mAP75", "mAP_small", "mAP_medium", "mAP_large",
+             "mAP_small_minGT", "mAP_medium_minGT", "mAP_large_minGT",
              "AP_S.aureus", "AP_B.subtilis", "AP_P.aeruginosa",
              "AP_E.coli", "AP_C.albicans"]
+
+# Decision 3.96d, fixed in 3.97g. The three size cells above are the COCO
+# columns: they average over the size cells of every class, including cells
+# with almost no ground truth. In this dataset the LARGE cell of S.aureus
+# holds exactly ONE box in val, and it carries a fifth of the large-object
+# average -- so mAP_large moved with a single detection and its seed sigma came
+# out ~19x the primary metric's. Decision 3.94a added the *_minGT columns,
+# which drop cells below `min_gt_for_cell` ground-truth boxes, precisely to
+# remove that pathology. This script was reading only the COCO columns and so
+# reported the pathology as if it were seed noise.
+#
+# Both are reported now, on purpose: metrics.py stays COCO-identical (3.94),
+# so the COCO column is the comparable-to-the-literature number and the minGT
+# column is the one to reason about. A run trained before 3.94a has no minGT
+# column; that key is then skipped and listed in `missing_secondary`.
+MINGT_PREFERRED = {
+    "mAP_small": "mAP_small_minGT",
+    "mAP_medium": "mAP_medium_minGT",
+    "mAP_large": "mAP_large_minGT",
+}
 
 # The deviation measured in decision 3.87 between an interrupted run that was
 # resumed and the same run left alone. This script exists partly to judge it.
@@ -211,22 +232,40 @@ def measure(records: list[dict]) -> dict:
     sigma_hi = (df * sigma ** 2 / lo_q) ** 0.5
 
     secondary = {}
+    missing_secondary = []
     for key in SECONDARY:
         vals = [r["summary"].get(key) for r in records]
         if any(v is None for v in vals):
+            missing_secondary.append(key)
             continue
         s = statistics.stdev(vals)
-        secondary[key] = {
+        entry = {
             "mean": statistics.fmean(vals),
             "sigma": s,
             "own_threshold_2sigma": 2.0 * s,
             "times_primary_sigma": (s / sigma) if sigma > 0 else None,
         }
+        # Say out loud which of the two size columns this is, so nobody has to
+        # remember (3.96d: this script used to report only the COCO one).
+        if key in MINGT_PREFERRED:
+            entry["column"] = "COCO (all size cells; see min_gt note)"
+            entry["prefer_instead"] = MINGT_PREFERRED[key]
+        elif key.endswith("_minGT"):
+            entry["column"] = "min_gt_for_cell filtered (3.94a) -- prefer this one"
+        secondary[key] = entry
+
+    if missing_secondary:
+        print(f"  [!] sub-metrics absent from at least one run, not reported: "
+              f"{', '.join(missing_secondary)}")
+        if any(k.endswith('_minGT') for k in missing_secondary):
+            print("      the *_minGT columns arrived with decision 3.94a; a run "
+                  "trained before it has only the COCO size columns.")
 
     return {
         "metric": METRIC,
         "n_seeds": n,
         "secondary": secondary,
+        "missing_secondary": missing_secondary,
         "values": {r["run"]: r["summary"][METRIC] for r in records},
         "mean": mean,
         "spread_max_minus_min": max(values) - min(values),
@@ -315,13 +354,20 @@ def main():
         print("-" * w)
         print("  SUB-METRICS -- each has its own spread. The threshold above")
         print("  does NOT apply to them; judge each by its own 2*sigma.")
-        print(f"  {'metric':<16}{'mean':>9}{'sigma':>10}{'2*sigma':>10}"
+        print(f"  {'metric':<18}{'mean':>9}{'sigma':>10}{'2*sigma':>10}"
               f"{'x primary':>11}")
         for k, d in res["secondary"].items():
             mult = d["times_primary_sigma"]
-            print(f"  {k:<16}{d['mean']:>9.4f}{d['sigma']:>10.5f}"
+            # 3.96d/3.97g: mark the size cells so the two columns are never
+            # mistaken for one another at a glance.
+            mark = ""
+            if k in MINGT_PREFERRED:
+                mark = "   <- COCO column, see *_minGT below"
+            elif k.endswith("_minGT"):
+                mark = "   <- use this one"
+            print(f"  {k:<18}{d['mean']:>9.4f}{d['sigma']:>10.5f}"
                   f"{d['own_threshold_2sigma']:>10.5f}"
-                  f"{(f'{mult:.1f}x' if mult else '-'):>11}")
+                  f"{(f'{mult:.1f}x' if mult else '-'):>11}{mark}")
     for n in notes:
         print(f"\n  {n}")
     print("=" * w)

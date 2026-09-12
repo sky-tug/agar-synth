@@ -2261,3 +2261,225 @@ surumlerini de almali.
 G50 kosulari G100'den hizli (ortalama 2,76 GPU-sa, G100'de 4,35): veri yarisi
 kadar, epoch suresi de oyle. G25 ve G10 daha da hizli olacak — kalan gercek-veri
 kollari icin tahmin kabaca 25 GPU-saat.
+
+---
+
+## Ikame egrisi tamamlandi — ve bir ongoru sinandi (12 Eylul)
+
+G25 ve G10 kollari bes tohuma tamamlandi. Gercek-veri ekseni bitti: dort
+seviye, yirmi kosu, 47,72 GPU-saat. Ama bu bolumun asil konusu sayilar degil,
+**sayilardan once yazilmis bir cumle.**
+
+### Ongoru, olcumden once yazildi
+
+11 Eylul'de elimizde uc nokta vardi (G100, G50, G25). Uclerine log-dogrusal bir
+egri uyduruldu ve G10'un sonucu **daha hicbir G10 kosusu baslamamisken** kayda
+gecirildi:
+
+```
+mAP50-95   = 0,49893 + 0,01731 * log2(N)      R2 = 0,99938
+mAP_small  = 0,19125 + 0,03326 * log2(N)      R2 = 0,99711
+
+G10 (N = 299) ongorusu:   ana metrik 0,64128     kucuk nesne 0,46480
+```
+
+Ayni gun su da yazildi: *"Esik tablosunda G10 ortalamasini gorunce uc seyden
+biri olacak: 0,641 civari — egri dogrulandi; belirgin dusuk — egri 300
+goruntunun altinda bukuluyor, kendi basina bulgu; belirgin yuksek —
+beklenmedik, sebebi aranir."*
+
+### Olcum
+
+```
+kol    goruntu  n   mAP50-95    sigma    2sigma   mAP_small  s_sigma  GPU-sa  epoch
+G100      2987  5    0,69901   0,00356   0,00711    0,57422  0,00983   21,74   98,2
+G50       1491  5    0,68091   0,00284   0,00569    0,54398  0,01863   13,79  108,2
+G25        746  5    0,66437   0,00381   0,00762    0,50764  0,00843    7,16   97,0
+G10        299  5    0,63705   0,00955   0,01910    0,48607  0,00672    5,02  115,0
+```
+
+G25 ve G10'un tohum tohum degerleri:
+
+```
+G25_s0  0,66515    G10_s0  0,64575
+G25_s1  0,66500    G10_s1  0,62212
+G25_s2  0,66796    G10_s2  0,63809
+G25_s3  0,66583    G10_s3  0,64474
+G25_s4  0,65789    G10_s4  0,63457
+```
+
+### Hukum 1 — ana metrikte ongoru tuttu
+
+```
+ongoru   0,64128
+gercek   0,63705
+fark    -0,00423        G10'un kendi esigi 0,01910
+```
+
+Fark esigin **yarisindan az**. Uc noktayla kurulan egri, hic gormedigi bir veri
+seviyesini olcum belirsizliginin icinde tahmin etti.
+
+Bunun neden onemli oldugunu bir kez daha soylemek gerekiyor: dort noktaya
+sonradan egri uydurmak ve R2 = 0,998 yazmak hicbir sey kanitlamaz — dort nokta
+her zaman bir dogruya yakin durur. Kanitlayan sey, **dorduncu noktanin
+onceden soylenmis olmasi.** Ikame egrisi makalede bir tahmin araci olarak
+kullanilacaksa (ornegin "sentetik veri N gercek goruntuye bedeldir"
+cumlesinde), o aracin tahmin gucu burada bir kez sinandi ve tuttu.
+
+### Hukum 2 — kucuk nesnede ongoru tutmadi: buyukluk degil, sekil
+
+```
+ongoru   0,46480
+gercek   0,48607
+fark    +0,02127        mAP_small esigi 0,01344  →  1,6 kati
+```
+
+Model **ongoruldugunden iyi** cikti. Yani `mAP_small` egrisi az veride
+diklesmiyor, **duzlesiyor**.
+
+Dikkat: bu, kucuk nesnelerin veri azalmasindan az zarar gordugu anlamina
+gelmez — asagida (3.97h) tam tersi cikiyor, yariya iniste kucuk nesne kaybi
+buyuk nesnenin %60 ustunde. Tutmayan sey **buyukluk degil, egrinin dusuk
+uctaki sekli**: uc noktayla kurulan dogru 300 goruntude dusmeye ayni hizla
+devam etmesini bekliyordu, olcum ise bukulmeyi gosteriyor. Ana metrikte
+adimlar diklesirken (3.97e) kucuk nesnede duzlesiyor — iki metrigin dusuk uc
+davranisi ayni degil.
+
+Ihtiyatli okuma: egri uydurmasi yalnizca uc noktayla yapildi ve `mAP_small`'in
+kollar arasi yayilimi duzensiz (σ, G50'de 0,01863 iken G10'da 0,00672 — uc
+kat fark). Soylenebilecek olan: *dort nokta tek bir log-dogru ile
+aciklanamiyor; sapma G10'da ongorunun ustunde.* Mekanizma iddiasi yok — 3.93a
+ve 3.96b'nin ayni dersi.
+
+### Hukum 3 — 299 goruntude varyans patliyor
+
+```
+kol    sigma     G100'un kac kati
+G100   0,00356        1,00
+G50    0,00284        0,80
+G25    0,00381        1,07
+G10    0,00955        2,68
+```
+
+G10'un yayilimi diger uc kolun **2,5 – 3,4 kati**. Ilk uc kol birbirine yakin
+(0,0028 – 0,0038); G10 bu bandin tamamen disinda. 299 egitim goruntusunde hangi
+tohumun secildigi sonucu belirgin bicimde degistiriyor.
+
+Bunun pratik sonucu var: sentetik kollar G10 seviyesinde karsilastirilirken
+kullanilacak esik 0,01910'dur, ana kolun 0,00711'i degil. Kol basina kendi
+esigini olcme karari (3.96) tam bu yuzden dogruydu — tek bir esik kullanmak G10
+karsilastirmalarinda %170 fazla hassasiyet iddiasi anlamina gelirdi.
+
+### Dort noktayla yeni uyum
+
+```
+mAP50-95   = 0,48573 + 0,01853 * log2(N)      R2 = 0,99768
+mAP_small  = 0,25762 + 0,02714 * log2(N)      R2 = 0,97393
+```
+
+Gercek veri her yariya indiginde ana metrikte **0,0185** kayip. Butun ikili
+farklar ayirt ediliyor:
+
+```
+G100 → G50    0,01810    t = 8,89
+G50  → G25    0,01655    t = 7,79
+G25  → G10    0,02731    t = 5,94        (hepsi df = 8)
+```
+
+Dikkat: fark her adimda buyuyor (0,0181 → 0,0166 → 0,0273). log2 ekseninde
+adimlar esit oldugu icin bu, dusuk veride egrinin **diklestigi** anlamina gelir
+— G10 ongorusunun bir parca altinda kalmasinin da sebebi bu.
+
+### Sayma metrikleri hakkinda bir uyari
+
+`G10_s2` sayma esigini 0,45'te secti, diger dort kosu 0,35'te. mAP bundan
+etkilenmez (butun guven degerleri uzerinden integre edilir), dolayisiyla
+yukaridaki esikler gecerli. Ama bu kolun **MAE / RMSE / sMAPE / ME degerleri
+tohum tohum karsilastirilamaz.** `threshold.py` bunu NOT olarak basti ve
+durmadi — dogru davranis, cunku olculen sey mAP.
+
+### 3.96d duzeltildi — ve duzeltme kozmetik degildi
+
+3.96d'de `threshold.py`'nin alt metriklerde COCO sutununu okudugu, 3.94a'da
+eklenen `minGT` sutununu gormedigi yazilmisti. Duzeltildi: `SECONDARY` artik
+her iki sutunu birlikte raporluyor ve hangisinin kullanilmasi gerektigini
+ekrana basiyor.
+
+Duzeltmenin etkisi beklenenden buyuk. `mAP_large`'in tohumlar arasi yayilimi:
+
+```
+kol    mAP_large (COCO)        mAP_large_minGT
+       ortalama   sigma  xana  ortalama   sigma  xana
+G100    0,69809 0,06676 18,8x   0,73856 0,00432  1,2x
+G50     0,63178 0,09111 32,0x   0,72404 0,00473  1,7x
+G25     0,59150 0,04342 11,4x   0,70867 0,00494  1,3x
+G10     0,58203 0,06966  7,3x   0,68188 0,01069  1,1x
+```
+
+Tek bir dogruluk kutusu — `S.aureus`'un val'deki yegane buyuk nesnesi —
+metrigin yayilimini ana metrigin 32 katina cikariyordu. O hucre dusurulunce
+yayilim ana metrigin **1,1 – 1,7 kati**na iniyor. `mAP_small` ve
+`mAP_medium` iki sutunda ayni; dusurulen tek hucre buyuk nesne hucresi,
+yani duzeltme cerrahi.
+
+Sonucu: **metrik kullanilamaz halden kullanilir hale geciyor.**
+
+```
+                 ikili farklar          log-dogrusal uyum
+mAP_large COCO   ucunun hicbiri ayirt edilemiyor      R2 = 0,86043
+mAP_large minGT  ucu de ayirt ediliyor                R2 = 0,99251
+```
+
+### Boy hucrelerinin ikame egrileri
+
+minGT sutunlariyla dort metrigin de egrisi cikariliyor. Her yariya inisteki
+kayip:
+
+```
+metrik              yariya inisteki kayip   R2      ayirt edilen ikili
+mAP_small                    0,02714      0,97393      1 / 3
+mAP50-95 (ana)               0,01853      0,99768      3 / 3
+mAP_medium_minGT             0,01715      0,99807      3 / 3
+mAP_large_minGT              0,01702      0,99251      3 / 3
+```
+
+Siralamanin soyledigi: **kucuk nesneler veri azalmasindan gercekten daha cok
+zarar goruyor** (yariya iniste 0,0271, buyuk nesnede 0,0170 — %60 fazla). Ama
+`mAP_small`'in kendi yayilimi buyuk oldugu icin uc ikili karsilastirmanin
+yalnizca biri ayirt ediliyor; iddia egri uzerinde duruyor, ikili
+karsilastirmalarda durmuyor. 3.93a ve 3.96b'nin dersi ucuncu kez: yon
+tutarli, tek adimda kanitlanamiyor.
+
+Orta ve buyuk nesneler birbirine cok yakin (0,01715 ve 0,01702) ve ikisi de
+ana metrigin altinda. Yani ana metrigin egimi buyuk olcude kucuk nesnelerden
+geliyor.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.97 | **G25 esigi 0,00762, G10 esigi 0,01910.** Kol ortalamalari 0,66437 ve 0,63705. Gercek-veri ekseni tamam: 20 kosu, 47,72 GPU-saat. | `main_grid` kol basina bes tohum sart kosuyor; her kol kendi esigini tasiyor (3.96). |
+| 3.97a | **Onceden yazilmis ongoru ana metrikte tuttu:** uc noktayla (G100/G50/G25) kurulan log-dogrusal egri G10'u 0,64128 dedi, olcum 0,63705 — fark −0,00423, G10 esiginin yarisindan az. | Dort noktaya sonradan egri uydurmak hicbir sey kanitlamaz; dorduncu noktayi onceden soylemek kanitlar. Egri makalede tahmin araci olarak kullanilacak. |
+| 3.97b | **Kucuk nesnede ongoru tutmadi:** ongoru 0,46480, olcum 0,48607 (+0,02127, esigin 1,6 kati). `mAP_small` egrisi dusuk ucta duzlesiyor, diklesmiyor — ana metrigin tersine (3.97e). Buyukluk degil, **sekil** tutmadi: kucuk nesne kaybi yine de en buyugu (3.97h). | Sapma esigin ustunde oldugu icin raporlanir; mekanizma iddiasi yok (3.93a, 3.96b). Iki metrigin dusuk-uc davranisi ayni degil — makalede ayri cumle gerektirir. |
+| 3.97c | **G10'da varyans patliyor: σ = 0,00955, diger uc kolun 2,5–3,4 kati.** Sentetik kollar G10 seviyesinde 0,01910 esigiyle karsilastirilacak. | Ilk uc kol 0,0028–0,0038 bandinda; G10 bandin disinda. Tek bir esik kullanmak G10'da %170 fazla hassasiyet iddiasi olurdu — 3.96'nin kol-basina-esik karari dogrulandi. |
+| 3.97d | **Dort noktali uyum: mAP50-95 = 0,48573 + 0,01853·log2(N), R2 = 0,99768.** Her yariya iniste 0,0185 kayip. Butun ikili farklar ayirt ediliyor (t = 8,9 / 7,8 / 5,9; df = 8). | Ikame egrisinin gercek-veri ekseni. Sentetik kollar bu egri uzerinde konumlandirilacak: "su kadar sentetik, su kadar gercek goruntuye bedel". |
+| 3.97e | **Adim farklari buyuyor (0,0181 → 0,0166 → 0,0273):** log2 ekseninde egri dusuk veride diklesiyor. | Tek bir log-dogru dort noktayi tam aciklamiyor; G10'un ongorunun altinda kalmasinin sebebi de bu. Raporlanir, zorlanmaz. |
+| 3.97f | `G10_s2` sayma esigini 0,45'te secti (diger dordu 0,35). **Bu kolun sayma metrikleri tohum tohum karsilastirilamaz;** mAP etkilenmez. | mAP butun guven degerleri uzerinden integre edilir. `threshold.py` NOT basti, durmadi — olculen sey mAP oldugu icin dogru davranis. |
+| 3.97g | **3.96d duzeltildi: `threshold.py` artik iki boy sutununu birlikte raporluyor** ve hangisinin kullanilacagini basiyor. Duzeltme kozmetik degil: `mAP_large`'in yayilimi ana metrigin 32 katindan **1,1–1,7 katina** iniyor, R2 0,86'dan **0,99251**'e cikiyor, ayirt edilen ikili farklar 0/3'ten **3/3**'e. | Tek dogruluk kutusu (`S.aureus`'un val'deki yegane buyuk nesnesi) metrigi kullanilamaz kiliyordu. `mAP_small` ve `mAP_medium` iki sutunda ayni — dusurulen tek hucre o. COCO sutunu literaturle karsilastirilabilir sayi oldugu icin silinmiyor, yaninda duruyor (3.94: `metrics.py` COCO-ozdes kalir). |
+| 3.97h | **Boy hucrelerinin egimleri: kucuk 0,02714, ana 0,01853, orta 0,01715, buyuk 0,01702** (yariya inisteki kayip). Kucuk nesneler veri azalmasindan %60 daha cok zarar goruyor; ana metrigin egimi buyuk olcude oradan geliyor. | Egri uzerinde duruyor (R2 = 0,97393) ama `mAP_small`'in uc ikili karsilastirmasinin yalnizca biri ayirt ediliyor. Yon tutarli, tek adimda kanitlanamiyor — 3.93a/3.96b'nin ucuncu tekrari. |
+
+### Faz 6'da neredeyiz
+
+```
+✅ G100  s0..s4     5 kosu · 21,74 GPU-sa · esik 0,00711
+✅ G50   s0..s4     5 kosu · 13,79 GPU-sa · esik 0,00569
+✅ G25   s0..s4     5 kosu ·  7,16 GPU-sa · esik 0,00762
+✅ G10   s0..s4     5 kosu ·  5,02 GPU-sa · esik 0,01910
+⬜ B_G25 C_G25      6 kosu   klasik artirma kontrolleri
+⬜ sentetik kollar 26 kosu   LoRA karari (3.89) bekliyor
+────────────────────────────────────────────────
+   20/52 kosu · 47,72 GPU-saat
+```
+
+Gercek-veri ekseni icin 11 Eylul'de "kabaca 25 GPU-saat" tahmini yapilmisti;
+G25 + G10 toplami 12,18 GPU-saat cikti — tahminin yarisi. Sebep: az veride
+epoch suresi dogrusal dusuyor ama epoch sayisi artiyor (G10 ortalama 115 epoch,
+G25'te 97), yine de net kazanc buyuk.

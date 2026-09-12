@@ -199,53 +199,107 @@ because ten demo plates pick a distribution *family*, not its parameters.
 
 ## Status
 
-*Last updated: 11 September 2026.*
+*Last updated: 12 September 2026.*
 
 Phases 1–5 are closed. The full dataset (4,267 images, 83,208 boxes) is in use,
-the protocol is frozen and tagged, and the training grid of Phase 6 is running.
+the protocol is frozen and tagged, and **the real-data axis of Phase 6 is
+complete**: four data levels, five seeds each, twenty runs.
 
 ```
 Phase 1  data preparation           done   4,267 images · 83,208 boxes
 Phase 2  real-data baseline         done   mAP50-95 = 0.699
 Phase 3  synthetic pipeline         done   4 levels: layout · bg pool · crops · LoRA
 Phase 4  texture gate               FAILED measured, and the gate's own blind spot measured
-Phase 5  freeze the protocol        done   tag faz5-bitti
-Phase 6  52 training runs         running  10 done · 35.5 GPU-hours
+Phase 5  freeze the protocol        done   tag phase5-done
+Phase 6  52 training runs         running  20 done · 47.7 GPU-hours · real-data axis complete
 Phase 7  ablations (9 runs)          ---
 ```
 
 ### Measured so far
 
-The real-data baseline, five seeds on val:
+How much real annotated data is actually worth, five seeds per arm, on val:
 
-| arm | images | seeds | mAP50-95 | sigma | own threshold |
-|---|---|---|---|---|---|
-| G100 (100% real) | 2,987 | 5 | 0.69901 | 0.00356 | 0.00711 |
-| G50 (50% real) | 1,491 | 5 | 0.68091 | 0.00284 | 0.00569 |
+| arm | images | seeds | mAP50-95 | sigma | own threshold | mAP_small | GPU-h |
+|---|---|---|---|---|---|---|---|
+| G100 (100% real) | 2,987 | 5 | 0.69901 | 0.00356 | 0.00711 | 0.5742 | 21.74 |
+| G50 (50% real) | 1,491 | 5 | 0.68091 | 0.00284 | 0.00569 | 0.5440 | 13.79 |
+| G25 (25% real) | 746 | 5 | 0.66437 | 0.00381 | 0.00762 | 0.5076 | 7.16 |
+| G10 (10% real) | 299 | 5 | 0.63705 | 0.00955 | 0.01910 | 0.4861 | 5.02 |
 
-Halving the real training set costs **0.01810 mAP50-95** — larger than either
-arm's own threshold (t ≈ 8.9, df = 8), so the gap is real. But read the size of
-it: 1,496 images' worth of annotation effort is worth 2.6% relative on the
-primary metric. The gap synthetic data has to close is small.
+All three pairwise gaps clear both arms' thresholds (t = 8.9 / 7.8 / 5.9,
+df = 8). The curve is log-linear in the number of real images:
 
-For small objects the loss looks roughly twice as large (0.0302) — but
-`mAP_small` carries its own spread, pooled 2σ ≈ 0.030, so the difference sits
-right at the boundary and cannot be claimed. The same lesson as the mAP75 case
-below, now on the substitution curve itself.
+```
+mAP50-95 = 0.48573 + 0.01853 * log2(N)          R2 = 0.99768
+```
+
+Every halving of the real training set costs **0.0185 mAP50-95**. Read the size
+of that: going from 2,987 annotated images down to 299 — a tenfold reduction in
+labelling effort — costs 0.062, about 9% relative. The gap synthetic data has
+to close is small, which is the demanding case for this project rather than the
+flattering one.
+
+**A prediction was written down before the last arm was run.** With three
+points in hand (G100, G50, G25) the curve was fitted and G10 was predicted on
+11 September, before any G10 run had started:
+
+```
+                      predicted    measured     difference   threshold
+mAP50-95                0.64128     0.63705       -0.00423     0.01910  held
+mAP_small               0.46480     0.48607       +0.02127     0.01344  missed
+```
+
+The primary metric landed inside its own measurement uncertainty — a curve
+fitted to three points predicted a data level it had never seen. Fitting four
+points after the fact and reporting R² = 0.998 would prove nothing; four points
+always lie near a line. Saying the fourth one in advance is what tests the
+curve, because the curve is meant to be used as a predictor.
+
+The small-object metric missed, and on the high side: its curve **flattens** at
+the low end instead of continuing to fall. That is reported as a finding, with
+no mechanism claimed for it.
+
+Slopes by object size, per halving of the real data:
+
+| metric | loss per halving | R² | pairwise gaps resolved |
+|---|---|---|---|
+| `mAP_small` | 0.02714 | 0.97393 | 1 of 3 |
+| `mAP50-95` (primary) | 0.01853 | 0.99768 | 3 of 3 |
+| `mAP_medium` | 0.01715 | 0.99807 | 3 of 3 |
+| `mAP_large` | 0.01702 | 0.99251 | 3 of 3 |
+
+Small objects do suffer most from data scarcity — about 60% more than large
+ones — and the primary metric's slope comes largely from them. The claim stands
+on the fit, though: only one of `mAP_small`'s three single-step gaps is
+separable from seed noise.
+
+The size rows above use the `minGT` reading, not plain COCO. On this dataset
+*S. aureus* has exactly **one** large ground-truth box in val, and COCO-style
+averaging let that single box drive `mAP_large` — its seed spread was 32× the
+primary metric's and none of its three gaps were separable. With cells below
+ten ground-truth boxes excluded, the spread falls to 1.1–1.7× and all three
+gaps separate. Both columns are reported side by side, and `metrics.py` itself
+stays COCO-identical.
 
 **The significance threshold is itself a measured quantity, and it was the first
 output of the grid rather than the last.** `eval.significant_diff_threshold`
-deliberately stayed `null` until five seeds of the same arm had been run:
+deliberately stayed `null` until five seeds of the same arm had been run, and
+every arm carries its own:
 
 ```
-significant_diff_threshold = 2 * sigma = 0.00711     (5 seeds, val, mAP50-95)
-sigma 90% CI                             0.0023 – 0.0084
+G100   2 * sigma = 0.00711      sigma 90% CI  0.0023 - 0.0084
+G10    2 * sigma = 0.01910      sigma 90% CI  0.0062 - 0.0227
 ```
 
-Three seeds had put it at 0.00399 — an under-estimate by nearly half. The
-three-seed value is kept next to the five-seed one in `DECISIONS.md` rather
-than deleted, because how far a small-sample sigma can stray is itself a
+Three seeds had put the G100 threshold at 0.00399 — an under-estimate by nearly
+half. The three-seed value is kept next to the five-seed one in `DECISIONS.md`
+rather than deleted, because how far a small-sample sigma can stray is itself a
 finding.
+
+At 299 training images the seed spread is 2.5–3.4× every other arm, so the
+synthetic arms at that level will be judged against 0.01910, not the primary
+arm's 0.00711. Using one shared threshold would have meant claiming 170% more
+sensitivity than the data supports.
 
 ### Findings that cost a claim
 
@@ -270,11 +324,26 @@ Two statements were retracted after being measured properly:
 | seconds per tile | ~0.34 | **0.959** |
 | peak VRAM (generation) | — | **2.889 GB** |
 | training run (G100) | 3.5 GPU-h | **4.35 GPU-h** |
+| training run (G50) | — | **2.76 GPU-h** |
+| training run (G25) | — | **1.43 GPU-h** |
+| training run (G10) | — | **1.00 GPU-h** |
+| whole real-data axis (20 runs) | — | **47.72 GPU-h** |
 
 The generation estimate was not 52% cheaper than assumed, as an earlier note
 claimed; it is **49% more expensive**. See `scripts/budget.py`.
 
+Training cost does not fall as fast as the data does: the small arms need
+*more* epochs to converge (G10 averages 115 against G25's 97), so a tenth of
+the data costs about a quarter of the GPU time rather than a tenth of it. The
+estimate for G25 + G10 together was "roughly 25 GPU-hours"; they came in at
+12.18.
+
 ### Open
+
+Next, and not blocked on anything: the six classical-augmentation control runs
+(`B_G25`, `C_G25`). They answer the obvious objection to this whole project —
+that a strong augmentation pipeline would buy the same thing as synthetic data
+for none of the cost.
 
 Production-LoRA selection is deliberately unresolved and blocks the 26
 synthetic-arm runs: longer LoRA training buys class separation and pays for it

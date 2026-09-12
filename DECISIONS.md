@@ -155,10 +155,10 @@ A read-through of the whole repository found 25 issues. The ones that became dec
 | # | Decision | Reason |
 |---|---|---|
 | 3.87 | **`--resume` works** — Phase 6's precondition passed. But the accounting was broken: an append-only `segments.jsonl` is now fsynced every epoch and survives `kill -9`; time, epochs and VRAM accumulate across segments | Three separate accounting errors surfaced during the test. A resumed run is not bit-identical to an uninterrupted one (0.0009 on the last epoch), and **no claim of negligibility was made** until the seed variance was known. |
-| 3.88 | **Protocol frozen**: `requirements.lock` (with the torch `+cu130` trap documented in its header), `conf_thr = 0.35` written into `base.yaml` with `evaluate.py` **stopping** on a mismatch, nine tests fixed, Phase 4 outputs put under version control. Tag `faz5-protokol` | Freezing revealed the rule-without-enforcement pattern in **three** places at once: a locked threshold sitting as `null`, a frozen environment with a missing tag, and an applied decision with un-updated tests. |
+| 3.88 | **Protocol frozen**: `requirements.lock` (with the torch `+cu130` trap documented in its header), `conf_thr = 0.35` written into `base.yaml` with `evaluate.py` **stopping** on a mismatch, nine tests fixed, Phase 4 outputs put under version control. Tag `phase5-protocol` (renamed from `faz5-protokol` in 3.95e) | Freezing revealed the rule-without-enforcement pattern in **three** places at once: a locked threshold sitting as `null`, a frozen environment with a missing tag, and an applied decision with un-updated tests. |
 | 3.89 | **Production-LoRA selection deferred**, and tied to a measurement. Phase 6 starts with the 26 runs that need no synthetic data | Both arguments have support and neither has a measurement. "An unmeasured number is not a number" forbids locking a guess into the protocol. |
 | 3.90 | A confidence interval was given to the **gate's own number**; the bootstrap's class set was fixed; the gate threshold was written into the code, and the verdict is issued over the interval. **Two sentences of 3.86 are retracted** | The gate could not decide. All four point estimates sit below the threshold, but only one interval lies entirely below it, and the bootstrap had been changing the definition of the quantity it measured between iterations — the error bar was itself measuring the wrong thing. |
-| 3.91 | **Phase 5 closed.** All four levels have `bg_pool` + `crops` + `lora`. Tag `faz5-bitti` | Unexpected confirmation: the crop pool changes tenfold across levels while the size of the adaptation does not (eval-loss drop 3.4–4.1% everywhere). Level differences on the substitution curve will not be coming from the LoRA. |
+| 3.91 | **Phase 5 closed.** All four levels have `bg_pool` + `crops` + `lora`. Tag `phase5-done` (renamed from `faz5-bitti` in 3.95e) | Unexpected confirmation: the crop pool changes tenfold across levels while the size of the adaptation does not (eval-loss drop 3.4–4.1% everywhere). Level differences on the substitution curve will not be coming from the LoRA. |
 
 ## Phase 6 — Run the grid (8 September 2026 onwards)
 
@@ -190,6 +190,55 @@ A read-through of the whole repository found 25 issues. The ones that became dec
 | 3.96b | **The loss looks larger for small objects (0.0302) but cannot be distinguished** — pooled 2σ ≈ 0.030, right at the boundary | 3.93a's lesson, repeated on the substitution curve: direction consistent, magnitude not claimable. |
 | 3.96c | `G50_s0` and `G50_s1` printing the same value is **rounding**, not a seeding fault. `summary.json` rounds to five places; the two runs differ on every other measure | Two identical values would have depressed σ. Checked and ruled out; full values live under `results/raw/`. |
 | 3.96d | **`threshold.py` reads the COCO column for sub-metrics, not the `minGT` one.** To be fixed | 3.94a added that column precisely to correct this pathology, and the threshold tool is unaware of it. |
+| 3.97 | **G25 threshold 0.00762, G10 threshold 0.01910.** Arm means 0.66437 and 0.63705. The real-data axis is complete: 20 runs, 47.72 GPU-hours | Every arm of `main_grid` gets five seeds and carries its own threshold (3.96). |
+| 3.97a | **A prediction written down before the measurement held on the primary metric.** A log-linear curve fitted to three points (G100/G50/G25) on 11 September said G10 = 0.64128; the measurement is 0.63705 — off by −0.00423, less than half of G10's own threshold | Fitting a curve to four points *after* seeing them and reporting R² = 0.998 proves nothing; four points always lie near a line. Saying the fourth point in advance is what proves something, and the curve is meant to be used as a predictor in the paper. |
+| 3.97b | **The same prediction failed for small objects:** 0.46480 predicted, 0.48607 measured (+0.02127, 1.6× that metric's threshold). `mAP_small` **flattens** at the low end where the primary metric steepens (3.97e). What failed is the *shape*, not the magnitude — small-object loss is still the largest of the four (3.97h) | The deviation exceeds the threshold, so it is reported; no mechanism is claimed (3.93a, 3.96b). The two metrics do not behave alike at the low end, and the paper needs a separate sentence for each. |
+| 3.97c | **Variance explodes at 299 images: σ = 0.00955, 2.5–3.4× the other three arms.** Synthetic arms at the G10 level will be compared against 0.01910, not the primary arm's 0.00711 | The first three arms sit in a narrow band (0.0028–0.0038); G10 is outside it entirely. A single shared threshold would have amounted to claiming 170% more sensitivity than the G10 data supports — 3.96's per-arm threshold decision, vindicated. |
+| 3.97d | **Four-point fit: `mAP50-95 = 0.48573 + 0.01853·log2(N)`, R² = 0.99768.** 0.0185 lost per halving; all three pairwise gaps resolved (t = 8.9 / 7.8 / 5.9, df = 8) | This is the real-data axis of the substitution curve. The synthetic arms will be placed on it: "this much synthetic data is worth this many real images." |
+| 3.97e | **The steps grow (0.0181 → 0.0166 → 0.0273):** on a log2 axis the curve **steepens** as data runs out | One straight line does not fully explain four points, and this is also why G10 landed slightly below prediction. Reported, not forced. |
+| 3.97f | `G10_s2` selected a counting threshold of 0.45 where the other four selected 0.35. **This arm's counting metrics are not comparable seed to seed;** mAP is unaffected | mAP integrates over all confidences. `threshold.py` printed a NOTE and did not stop — correct, because the quantity being measured is mAP. |
+| 3.97g | **3.96d fixed: `threshold.py` now reports both size columns** and prints which one to use. The fix is not cosmetic — `mAP_large`'s seed spread drops from 32× the primary metric to **1.1–1.7×**, R² rises from 0.86 to **0.99251**, and resolved pairwise gaps go from **0/3 to 3/3** | One ground-truth box — *S. aureus*'s only large object in val — was making the metric unusable. `mAP_small` and `mAP_medium` are identical in both columns; that one cell was the whole problem. The COCO column stays beside it because it is the number comparable to the literature (3.94b: `metrics.py` remains COCO-identical). |
+| 3.97h | **Slopes by size cell: small 0.02714, primary 0.01853, medium 0.01715, large 0.01702** per halving. Small objects really do suffer ~60% more from data scarcity, and the primary metric's slope comes largely from them | The claim stands on the fit (R² = 0.97393) but only one of `mAP_small`'s three pairwise gaps is resolved. Direction consistent, single step not provable — 3.93a/3.96b for the third time. |
+
+### The prediction test (12 September 2026)
+
+The real-data axis of the substitution curve was measured in four arms of five
+seeds each — twenty runs, 47.72 GPU-hours on one laptop GPU.
+
+```
+arm    images  n   mAP50-95    sigma   2sigma   mAP_small   GPU-h
+G100     2987  5    0.69901  0.00356  0.00711     0.57422   21.74
+G50      1491  5    0.68091  0.00284  0.00569     0.54398   13.79
+G25       746  5    0.66437  0.00381  0.00762     0.50764    7.16
+G10       299  5    0.63705  0.00955  0.01910     0.48607    5.02
+```
+
+Before any G10 run started, a curve was fitted to the first three points and
+the fourth was written down:
+
+```
+mAP50-95  = 0.49893 + 0.01731 * log2(N)      R2 = 0.99938
+predicted for N = 299:   0.64128 primary,  0.46480 small objects
+measured:                0.63705            0.48607
+                        -0.00423  HELD     +0.02127  MISSED
+                    (threshold 0.01910)  (threshold 0.01344)
+```
+
+The primary metric landed inside its own measurement uncertainty; the
+small-object metric did not, and missed on the high side — its curve flattens
+at the low end rather than continuing to fall. The refit over all four points:
+
+```
+mAP50-95          = 0.48573 + 0.01853 * log2(N)   R2 = 0.99768   3/3 gaps resolved
+mAP_medium_minGT  = 0.44705 + 0.01715 * log2(N)   R2 = 0.99807   3/3
+mAP_large_minGT   = 0.54370 + 0.01702 * log2(N)   R2 = 0.99251   3/3
+mAP_small         = 0.25762 + 0.02714 * log2(N)   R2 = 0.97393   1/3
+```
+
+Halving the real training data costs 0.0185 mAP50-95. Small objects lose most
+(0.0271 per halving); medium and large are nearly identical and both below the
+primary metric, so the headline slope comes largely from the small objects.
+
 
 ---
 
