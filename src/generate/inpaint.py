@@ -483,11 +483,40 @@ def run(args):
                  f"level {args.level} in its name. Per-level LoRA is what keeps "
                  f"'only X% real data' true; refusing to guess.")
 
+    out = Path(args.out)
+
+    # --- resume (decision 3.100) --------------------------------------------
+    # Filtered BEFORE the pipeline is loaded: if there is nothing left to do
+    # there is no reason to spend a model load, and more importantly no reason
+    # to touch anything in --out.
+    n_skipped = 0
+    if args.resume:
+        todo = []
+        for pf in provs:
+            name = json.loads(pf.read_text())["name"]
+            if (out / "images" / f"{name}.jpg").exists() and \
+               (out / "labels" / f"{name}.txt").exists():
+                n_skipped += 1
+            else:
+                todo.append(pf)
+        print(f"  [resume] {n_skipped} plates already present, "
+              f"{len(todo)} to generate")
+        if not todo:
+            # Return WITHOUT writing gen_metrics.json. A cron-driven retry that
+            # finds the level already finished would otherwise overwrite the
+            # real measurement with a file describing zero plates -- destroying
+            # the sec/tile figure that scripts/budget.py depends on and that
+            # cost GPU-hours to obtain. Decision 3.53: this script measures,
+            # and a measurement must not be clobbered by a no-op.
+            print(f"  [resume] nothing to do; {out/'gen_metrics.json'} left "
+                  f"untouched")
+            return
+        provs = todo
+
     pipe = None
     if not args.dry:
         pipe = load_pipeline(args.model, args.lora, args.device, args.steps)
 
-    out = Path(args.out)
     (out / "images").mkdir(parents=True, exist_ok=True)
     (out / "labels").mkdir(parents=True, exist_ok=True)
 
@@ -568,7 +597,16 @@ def run(args):
         "steps": args.steps,
         "guidance": args.guidance,
         "strength": args.strength,
+        # These describe THIS invocation. On a resumed run len(provs) is the
+        # number generated now, not the number in --out; the two extra fields
+        # say so rather than leaving a reader to assume. sec_per_image and
+        # tiles_per_image stay honest because they divide by the generated
+        # count -- dividing by the total would report a machine several times
+        # faster than it is.
         "n_plates": len(provs),
+        "n_plates_skipped_resume": n_skipped,
+        "n_plates_in_out": len(provs) + n_skipped,
+        "resumed": bool(args.resume and n_skipped),
         "n_tiles": all_tiles,
         "tiles_per_image": round(all_tiles / max(len(provs), 1), 2),
         "sec_per_tile_mean": round(float(a.mean()), 4),
@@ -722,6 +760,16 @@ def main():
     p.add_argument("--steps", type=int, default=4)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--limit", type=int, default=None, help="only the first N plates")
+    # Decision 3.100. Generation is the longest single step in this project --
+    # one level costs 8 to 13 GPU-hours -- and without this a run killed in its
+    # twelfth hour starts again from zero. That is not hypothetical: on
+    # 13 September the kernel OOM killer took a python process mid-run and ten
+    # and a half hours went idle before anyone noticed. Explicit rather than
+    # automatic, so that a resumed run is visible in the command that produced
+    # it (the same reason --allow-combined-mask is a flag).
+    p.add_argument("--resume", action="store_true",
+                   help="skip plates whose image AND label are already under "
+                        "--out, so an interrupted generation can continue")
     p.add_argument("--out", required=True)
     p.set_defaults(fn=run)
 

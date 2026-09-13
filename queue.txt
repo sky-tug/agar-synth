@@ -1,0 +1,38 @@
+# =============================================================================
+# Run queue -- consumed by scripts/run_queue.sh
+# =============================================================================
+# Format:  <name>  <level>  <seed>  <overlay|->
+#
+# Execution follows this order, and the order is the priority: the queue may
+# not reach the end, so whatever answers the question comes first.
+#
+# Safe to edit while the queue is running -- the next tick re-reads the file,
+# and a run that already has runs/<name>/eval_val/summary.json is skipped.
+# Adding a line is how you extend the queue; there is no other step.
+# =============================================================================
+
+# --- classical augmentation controls (Phase 6) -------------------------------
+# These answer the sharpest objection to the whole project: that a cheap
+# augmentation pipeline buys what diffusion buys, for none of the cost.
+# B_G25_s0 is already trained; listed anyway so that if its evaluation is
+# still missing the queue finishes it rather than leaving a run half-measured.
+B_G25_s0      25    0    aug_b_classic.yaml
+B_G25_s1      25    1    aug_b_classic.yaml
+B_G25_s2      25    2    aug_b_classic.yaml
+
+# The arm formerly called C. Ultralytics' copy_paste is a no-op on
+# detect-format labels (decision 3.98), so this arm is named for what it
+# actually applies: mosaic and mixup.
+M_G25_s0      25    0    aug_m_mosaic_mixup.yaml
+M_G25_s1      25    1    aug_m_mosaic_mixup.yaml
+M_G25_s2      25    2    aug_m_mosaic_mixup.yaml
+
+# --- synthetic arms ----------------------------------------------------------
+# Blocked on decision 3.89 (which LoRA checkpoint goes into production) and on
+# the generation that follows it. Append them here once that is settled; the
+# order below is the intended one -- S100 and G10+S first, because they are
+# where synthetic substitution either shows up or does not.
+#
+# S100_s0     100   0    -
+# G10+S_s0    100   0    -
+# ...
