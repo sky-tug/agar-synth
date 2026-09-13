@@ -199,6 +199,55 @@ A read-through of the whole repository found 25 issues. The ones that became dec
 | 3.97f | `G10_s2` selected a counting threshold of 0.45 where the other four selected 0.35. **This arm's counting metrics are not comparable seed to seed;** mAP is unaffected | mAP integrates over all confidences. `threshold.py` printed a NOTE and did not stop — correct, because the quantity being measured is mAP. |
 | 3.97g | **3.96d fixed: `threshold.py` now reports both size columns** and prints which one to use. The fix is not cosmetic — `mAP_large`'s seed spread drops from 32× the primary metric to **1.1–1.7×**, R² rises from 0.86 to **0.99251**, and resolved pairwise gaps go from **0/3 to 3/3** | One ground-truth box — *S. aureus*'s only large object in val — was making the metric unusable. `mAP_small` and `mAP_medium` are identical in both columns; that one cell was the whole problem. The COCO column stays beside it because it is the number comparable to the literature (3.94b: `metrics.py` remains COCO-identical). |
 | 3.97h | **Slopes by size cell: small 0.02714, primary 0.01853, medium 0.01715, large 0.01702** per halving. Small objects really do suffer ~60% more from data scarcity, and the primary metric's slope comes largely from them | The claim stands on the fit (R² = 0.97393) but only one of `mAP_small`'s three pairwise gaps is resolved. Direction consistent, single step not provable — 3.93a/3.96b for the third time. |
+| 3.98 | **Ultralytics' `copy_paste` is dead code on detect-format labels.** `segments` is populated only for polygon labels; every label in this dataset has five columns. The arm was renamed for what it actually applies — **M (mosaic + mixup)** — and copy-paste will be measured separately, with an offline implementation | The config's own header carried the warning; it was checked before the runs were spent. A baseline that is silently ineffective inflates the apparent gain of diffusion — "the most dangerous mistake of all", as that header put it, and it was right. |
+| 3.98a | **The B arm (translate + scale) beats G25 by 0.01710**, above both arms' thresholds (t = 8.64, df = 6). On the substitution curve that is **1,513 real images' worth** — a gain of 767 images over the 746 it actually trained on | Halving the real data costs 0.0185; this augmentation buys back 0.0171. The bar synthetic data has to clear is now a number, and it is not a low one. |
+| 3.98b | **Augmentation helps small objects twice as much, and here the difference IS resolved** (+0.03543, 2.1× the pooled 2σ) | Every small-object difference in the real-data arms had fallen below threshold (3.96b, 3.97h). This is the first resolvable one. |
+| 3.98c | **B's σ (0.00044) is an artefact of the epoch ceiling, not a sign of stability** — two of the three ran 150/150 and one 142. The arm's own threshold will not be used, and 0.68147 is a lower bound | The G25 arms stopped at 89–109 epochs on `patience`; B exhausted the budget because augmentation makes the task harder. Runs that all stop in the same place lose the early-stopping spread. The +S arms may hit the ceiling too; the table must mark which did. |
+| 3.99 | **Production LoRA: 1500 steps.** Five reasons: (1) it exists at all four levels, ck4500 only at 100; (2) no checkpoint passed the gate; (3) the separation 4500 buys is largely texture artefact (92% → 15%); (4) 4500's confidence interval spans 7–77% and says nothing; (5) fidelity favours 1500 decisively (87.5 against a real 88.8; 4500 gives 145.7) | **This is NOT the head-to-head measurement 3.89 promised.** It is a decision made on prior evidence under a schedule constraint, and is recorded as such. The head-to-head can still run; if 4500 wins, one arm has to be regenerated. |
+| 3.100 | **Unattended-operation infrastructure:** swap 4 → 20 GB; `run_queue.sh` and `gen_queue.sh` (idempotent, no `set -e`, one retry per step, a status file); `inpaint.py --resume`; cron every 15 minutes as the supervisor | On 13 September the kernel OOM killer took `evaluate.py` (9.35 GB resident), `set -e` cancelled the remaining two seeds, the queued follow-up chain died in the same group, and the GPU sat idle for ten and a half hours. An unattended queue must be restartable **by anything**, because whatever kills it leaves no note. |
+| 3.100a | **`inpaint.py --resume` does NOT touch `gen_metrics.json` when there is nothing left to generate** | Otherwise a cron tick would overwrite a measurement that cost GPU-hours with a file describing zero plates, destroying the sec/tile figure `budget.py` depends on (3.53). Caught in testing. |
+| 3.100b | **`gen_queue.sh` WAITS for the lock (`flock -w 180`) instead of giving up on it (`flock -n`)** | With `-n`, generation would never have started at all: `run_queue.sh` is first in cron and holds the lock even for a one-second scan, so every generation tick would see it, exit, and leave the GPU idle for fifteen minutes — every tick, forever. Caught in testing. |
+| 3.100c | **One synthetic pool per level; the arms take nested subsets** (1120 ⊂ 2240 ⊂ 4481) | The amount sweep asks what the QUANTITY of synthetic data changes; three independent pools would confound generation-to-generation variation with quantity. It also cuts generation from 40 GPU-hours to 34. |
+| 3.101 | **The synthetic arms became trainable:** `train.py --train-list`, plus `scripts/make_arm_lists.py` which builds the lists. Each list carries a `<list>.json` sidecar describing its composition, copied into `run_metrics.json` as `n_real` / `n_synth` | `train.py` DERIVED its training set from `--level`, and a "+S" arm cannot be said in that vocabulary. The substitution curve is a claim about exactly those two numbers; reporting an arm without them would be writing the answer without the question. |
+| 3.101a | **Every arm draws from its own level's pool** (3.2, 3.7). An arm whose pool is unfinished is **deferred, not failed** | Feeding a G25 arm from the level-100 pool would put information from images outside the 25% subset into training — the leak the per-level protocol exists to prevent. Generation takes tens of hours; "not yet" is not an error. |
+| 3.102 | **`scripts/status.py`:** the card, what is training and at which epoch, where generation stands, which arm lists are ready, how much of Phase 6 is done, and what is **still** wrong — on one screen | The answer had been spread over six places and reassembling it by hand took longer than reading it, which is a bad property for a project meant to run by itself for days. Transient failures that later succeeded are not listed, or someone would worry about a problem that fixed itself. |
+
+### Left running (13 September 2026)
+
+The project had to survive four days with nobody watching, and on the night
+before that window it failed in the most ordinary way available: the kernel's
+OOM killer took an evaluation process holding 9.35 GB, `set -e` cancelled the
+two seeds queued behind it, the follow-up chain died in the same process group,
+and the GPU sat idle for ten and a half hours.
+
+Nothing was corrupted and no result was lost -- only time. But the fix is not a
+retry. An unattended queue has to be restartable **by anything**, because
+whatever kills it will not leave a note:
+
+```
+scripts/run_queue.sh    training  -- skips finished runs, resumes half-trained
+                                     ones, retries a failed step once, and
+                                     never lets one failure cancel the queue
+scripts/gen_queue.sh    generation -- three stages per level, each skipped when
+                                     its output is complete
+inpaint.py --resume     generation continues plate by plate
+scripts/status.py       one screen: card, current run, generation, arm lists,
+                                    Phase 6 progress, unresolved failures
+```
+
+Because running either script twice is harmless, **a cron entry every fifteen
+minutes is the supervisor.** Nothing watches the watcher and nothing needs to;
+cron also runs outside the graphical session, which a nohup'd job does not
+reliably survive.
+
+Two traps showed up in testing rather than in writing: a resumed generation
+would have overwritten the sec/tile measurement with a file describing zero
+plates, and the two queues' shared lock would have starved generation forever
+because the training queue takes it first every tick even for a one-second
+scan. Both are recorded above (3.100a, 3.100b) because both would have been
+invisible in the log -- the first as a quietly wrong number, the second as a
+GPU that simply never got used.
+
 
 ### The prediction test (12 September 2026)
 

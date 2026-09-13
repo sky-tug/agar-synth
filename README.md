@@ -51,11 +51,14 @@ The technique above is a means. The measurement is the paper:
 | `G50+S` `G25+S` `G10+S` | that fraction of real, topped up with synthetic |
 | `S100` | synthetic only |
 
-5 seeds each. Plus controls: **Baseline B** (classic geometric/colour
-augmentation) and **Baseline C** (copy-paste / mosaic / mixup) answer *"could you
-have done this more cheaply?"*; ablations **A1/A2/A3** (no LoRA, no real
-background, naive layout) answer *"which part actually mattered?"*. 61 training
-runs total.
+5 seeds each. Plus controls that answer *"could you have done this more
+cheaply?"* — **Baseline B** (translate/scale on top of the flips and HSV jitter
+every arm already uses) and **Baseline M** (mosaic + mixup). M was going to be a
+copy-paste arm until Ultralytics' `copy_paste` turned out to be a no-op on
+detect-format labels, so the arm is named for what it applies and copy-paste
+will be measured separately ([decision 3.98](DECISIONS.md)). Ablations
+**A1/A2/A3** (no LoRA, no real background, naive layout) answer *"which part
+actually mattered?"*. 61 training runs total.
 
 ---
 
@@ -140,7 +143,8 @@ python scripts/budget.py --metrics runs/G100_s0/run_metrics.json --full-size 800
     --gen-sec-per-image 8 --lora-hours 2 --lora-count 4 --xai
 ```
 
-Generate synthetic layouts and masks (diffusion itself is not wired up yet):
+Generate synthetic plates. The three stages are chained per level by
+`scripts/gen_queue.sh`; run by hand like this when you want one level only:
 
 ```bash
 python src/generate/layout.py fit    --level 25 --list data/processed/lists/train_25.txt \
@@ -153,7 +157,27 @@ python src/generate/layout.py validate --params src/generate/layout_25.json \
 python src/generate/mask.py pool  --level 25 --list data/processed/lists/train_25.txt \
     --out src/generate/bg_pool_25.json
 python src/generate/mask.py build --level 25 --plans data/synthetic/s25 \
-    --pool src/generate/bg_pool_25.json --out data/synthetic/s25_masks
+    --pool src/generate/bg_pool_25.json --split-masks --out data/synthetic/s25_masks
+
+# --split-masks is not optional: inpaint.py refuses a single combined mask,
+# because it cannot express "fill this disk, empty that one" (decision 3.85).
+python src/generate/inpaint.py run --level 25 --input data/synthetic/s25_masks \
+    --plans data/synthetic/s25 --lora src/generate/lora_25 \
+    --tile 512 --steps 4 --resume --out src/generate/synth_g25
+```
+
+Then build the arm's training list and train on it:
+
+```bash
+python scripts/make_arm_lists.py      # real subset + synthetic, with a sidecar
+python scripts/train.py --config configs/base.yaml --level 25 --seed 0 \
+    --train-list data/processed/lists/arm_G25plusS.txt --name G25plusS_s0
+```
+
+Or leave it to the queues and just watch:
+
+```bash
+python scripts/status.py    # card, current run, generation, arms, progress
 ```
 
 ---
@@ -199,7 +223,7 @@ because ten demo plates pick a distribution *family*, not its parameters.
 
 ## Status
 
-*Last updated: 12 September 2026.*
+*Last updated: 13 September 2026.*
 
 Phases 1–5 are closed. The full dataset (4,267 images, 83,208 boxes) is in use,
 the protocol is frozen and tagged, and **the real-data axis of Phase 6 is
@@ -211,7 +235,7 @@ Phase 2  real-data baseline         done   mAP50-95 = 0.699
 Phase 3  synthetic pipeline         done   4 levels: layout · bg pool · crops · LoRA
 Phase 4  texture gate               FAILED measured, and the gate's own blind spot measured
 Phase 5  freeze the protocol        done   tag phase5-done
-Phase 6  52 training runs         running  20 done · 47.7 GPU-hours · real-data axis complete
+Phase 6  52 training runs         running  23 done · 54.3 GPU-hours · real-data axis + B arm
 Phase 7  ablations (9 runs)          ---
 ```
 
@@ -300,6 +324,42 @@ At 299 training images the seed spread is 2.5–3.4× every other arm, so the
 synthetic arms at that level will be judged against 0.01910, not the primary
 arm's 0.00711. Using one shared threshold would have meant claiming 170% more
 sensitivity than the data supports.
+
+### What cheap augmentation is worth
+
+Before spending a single synthetic run, the obvious objection was measured:
+a classical augmentation pipeline is nearly free, so does it buy what diffusion
+is supposed to buy? Three seeds at the G25 level, translation and scale on top
+of the flips and HSV jitter the main arms already use:
+
+| arm | images | seeds | mAP50-95 | sigma | mAP_small |
+|---|---|---|---|---|---|
+| G25 (25% real) | 746 | 5 | 0.66437 | 0.00381 | 0.5076 |
+| B_G25 (+ translate/scale) | 746 | 3 | 0.68147 | 0.00044 | 0.5431 |
+
+The gap is **+0.01710**, above both arms' thresholds (t = 8.64, df = 6). Put it
+on the substitution curve and it reads:
+
+```
+746 real images + translate/scale  ~=  1,513 real images
+```
+
+Augmentation is worth **767 images' worth of annotation** — about the same as
+one doubling of the real training set. For small objects it is stronger still
+(+0.0354, 2.1x the pooled threshold), and notably this is the *first*
+small-object difference in the project that separates from seed noise at all.
+
+So the bar for synthetic data is now a measured number rather than an
+assumption, and it is a demanding one. That is the honest way round: the
+competitor was measured before the method it competes with.
+
+One caveat, on the record: B's seed spread (0.00044) is eight times smaller
+than G25's, and that is an artefact of the epoch ceiling rather than a property
+of the arm — two of the three runs used the full 150 epochs and the third 142,
+while the G25 runs stopped on patience at 89–109. Runs that all stop in the
+same place lose the early-stopping variation that dominates the other arms. So
+0.68147 is a lower bound, the arm's own 2σ is not used as a threshold, and the
+judgement above rests on G25's threshold and the t test instead.
 
 ### Findings that cost a claim
 

@@ -2483,3 +2483,214 @@ Gercek-veri ekseni icin 11 Eylul'de "kabaca 25 GPU-saat" tahmini yapilmisti;
 G25 + G10 toplami 12,18 GPU-saat cikti — tahminin yarisi. Sebep: az veride
 epoch suresi dogrusal dusuyor ama epoch sayisi artiyor (G10 ortalama 115 epoch,
 G25'te 97), yine de net kazanc buyuk.
+
+---
+
+## Sessiz bir no-op, bir OOM ve dort gunluk bir pencere (13 Eylul)
+
+Bu bolum uc seyi kaydediyor: kosulari yakmadan once yakalanan bir kutuphane
+hatasi, bir gecede on bucuk saat GPU kaybettiren bir bellek tasmasi, ve
+projenin gozetimsiz dort gun calisabilmesi icin yazilanlar.
+
+### Ultralytics'in `copy_paste`'i bu veride hicbir sey yapmiyor
+
+`aug_c_copypaste.yaml` kendi basliginda sunu yaziyordu: *"WARNING -- the
+copy_paste of Ultralytics requires a segmentation mask. On the detect task
+copy_paste may silently have no effect."* Uyari kosulari harcamadan once
+denetlendi ve **dogru cikti.**
+
+```
+ultralytics/data/augment.py  CopyPaste.__call__  (8.4.118)
+    if len(labels["instances"].segments) == 0 or self.p == 0:
+        return labels
+
+ultralytics/data/utils.py  verify_image_label
+    segments YALNIZCA etiket satiri bes sutundan uzunsa (poligon) doluyor
+```
+
+Olcum:
+
+```
+awk '{print NF}' data/processed/labels/*.txt | sort -u
+→ 5
+```
+
+Butun etiketler bes sutun, yani `segments` her zaman bos, yani `CopyPaste`
+ilk satirda geri donuyor. `copy_paste: 0.3` **olu kod.** `copy_paste_mode`
+hic okunmuyor bile — erken donus mode dalindan once.
+
+Kol oldugu gibi kosulsa mosaic + mixup kolu olurdu ve makalede
+"copy-paste ile karsilastirdik" yazacaktik. Bu tam olarak config'in kendi
+uyardigi senaryo: sessizce etkisiz bir temel kol, difuzyonun lehine **sahte
+bir kazanc** uretir.
+
+Kol, uyguladigi seyin adiyla yeniden adlandirildi: **M (mosaic + mixup)**.
+Copy-paste ayri ve durust bir kol olarak, offline bir uygulamayla olculecek
+(koloni kirpintilarini gercek plakalara yapistir, kutuyu da tasi). Iki etki
+boylece karistirilmadan ayri ayri olculur — zaten daha iyi tasarim.
+
+### B kolu tamamlandi — ve rakip guclu
+
+```
+kosu        mAP50-95    mAP_small   epoch     GPU-sa
+B_G25_s0     0,68197      0,5340   150/150     2,25
+B_G25_s1     0,68116      0,5505   142/150     2,10
+B_G25_s2     0,68127      0,5447   150/150     2,21
+ortalama     0,68147      0,5431
+```
+
+```
+kol      n   ortalama    sigma     2sigma
+B_G25    3    0,68147   0,00044   0,00088
+G25      5    0,66437   0,00381   0,00762
+────────────────────────────────────────────
+fark         +0,01710                         t = 8,64 (df = 6)
+```
+
+Fark her iki kolun esigini de geciyor. **Ikame egrisi uzerinde okunusu:**
+
+```
+mAP = 0,48573 + 0,01853 * log2(N)   →   0,68147 icin N = 1.513
+746 gercek goruntu + oteleme/olcek  ≈  1.513 gercek goruntu
+```
+
+Klasik artirma **767 goruntu esdegeri** kazandiriyor, yani veri setini iki
+katindan fazlasina cikarmaya bedel. Bir yariya inisin maliyeti 0,0185'ti;
+artirmanin kazanci 0,0171 — neredeyse ayni buyuklukte.
+
+Kucuk nesnelerde daha da guclu, ve burada fark **ayirt ediliyor**:
+
+```
+mAP_small   B_G25 0,54308   G25 0,50764   fark +0,03543
+            birlesik 2σ 0,01680  →  esigin 2,1 kati
+```
+
+Bu kayda deger: gercek-veri kollarinda kucuk nesne farklari hep esigin altinda
+kalmisti (3.96b, 3.97h). Klasik artirma kucuk nesnelere ana metrikten iki kat
+fazla yariyor ve bu, bes tohum gerektirmeden gorulebiliyor.
+
+**Sentetik verinin asmasi gereken cubuk artik bir rakam.** G25 seviyesinde
+1.513-esdegerini gecmesi gerekiyor; gecemezse difuzyonun pratik gerekcesi
+kalmaz. Bunu sentetik kollar kosmadan once bilmek iyi.
+
+### Uyari: B'nin sigmasi olabilecek en kucuk sey degil, en kisitli sey
+
+σ = 0,00044, G25'in σ'sinin sekizde biri. Sebebi buyuk olasilikla **epoch
+tavani**: uc kosunun ikisi 150/150 yapti, biri 142. G25 kollari 89-109
+epoch'ta `patience 50` ile durmustu; B artirma yuzunden ogrenmesi zorlastigi
+icin butceyi tuketti. Ucu de ayni yerde durunca "erken durdurma nereye denk
+gelirse" oynakligi ortadan kalkti.
+
+Iki sonucu var:
+
+1. **B'nin kendi esigi (0,00088) gelecekte kullanilmamali** — olcum
+   belirsizligini degil epoch butcesini yansitiyor, ve olmasi gerekenden
+   yaklasik sekiz kat hassas gorunur.
+2. **0,68147 bir alt sinir.** Daha uzun egitimle daha iyi olabilirdi. Yukaridaki
+   hukum bu yuzden G25'in esigiyle ve t testiyle verildi.
+
+Bu, `+S` kollarini da vuracak: hepsi 2.987 goruntuyle ve sentetik cesitlilikle
+egitilecek, onlar da tavana carpabilir. Karsilastirma yapilirken hangi kollarin
+tavana carptigi tabloda gorunmeli.
+
+### Bir OOM, on bucuk saat, ve neyin degistigi
+
+13 Eylul 01:40'ta B_G25_s0'in degerlendirmesi cekirdek tarafindan olduruldu:
+
+```
+Sep 13 01:40:34 kernel: Out of memory: Killed process 356034 (python)
+                        anon-rss:9347716kB
+```
+
+`evaluate.py` tek basina **9,35 GB** tutuyor. 15 GiB RAM, 4 GiB swap, ve ayni
+anda acik VS Code. Zincir `set -e` kullandigi icin kalan iki tohum da iptal
+oldu; sirada bekleyen M zinciri de (basit bir `while kill -0 <pid>; do sleep
+60; done` bekleyicisi) ayni grupta gitti. **Kart 10,5 saat bos bekledi ve
+kimse fark etmedi.**
+
+Makine yeniden baslamamisti (2 gundur acik), oturum da capraz kontrolle
+elendi: VS Code'un da kapanmis olmasi ilk basta oturum cokmesini
+dusundurdu, ama `journalctl -k` cekirdek OOM katilini gosterdi.
+
+Not: 9,35 GB her zaman boyleydi. Ilk 20 kosuda patlamamasinin sebebi o
+gecelerde VS Code'un kapali olmasi. **Bu bir zaman bombasiydi, dun patladi.**
+
+Yapilanlar:
+
+```
+swap        4 GB → 20 GB   (/swapfile2, fstab'a yazildi)
+sarmalayici scripts/run_queue.sh      — egitim kuyrugu
+            scripts/gen_queue.sh      — uretim kuyrugu
+inpaint.py  --resume                  — plaka plaka devam
+status.py                             — tek ekranda durum
+```
+
+Sarmalayicinin tasarim fikri, "retry ekle"den daha temel bir sey: **gozetimsiz
+bir kuyruk her sey tarafindan yeniden baslatilabilir olmali**, cunku onu ne
+oldururse oldursun arkasinda not birakmaz. Dolayisiyla:
+
+- script'i iki kez calistirmak zararsiz — bitmis kosu atlanir, yarim kalmis
+  egitim `--resume` ile surdurulur, `flock` es zamanli kopyayi imkansiz kilar;
+- **bu yuzden 15 dakikalik bir cron girdisi denetleyicinin kendisi.** Hicbir
+  sey denetleyiciyi denetlemiyor ve gerek de yok;
+- `set -e` yok: dusen bir kosu kuyrugun geri kalanini iptal etmiyor;
+- her adim bir kez daha deneniyor, cunku OOM genelde geciciydi;
+- ne kostu ne dustu `logs/queue_status.tsv`'ye yaziliyor.
+
+Cron grafik oturumun **disinda** calisiyor, yani oturum cokmesine ve cikisa da
+dayaniyor — `nohup`'un guvenilir bicimde vermedigi garanti bu.
+
+### Testte cikan iki tuzak
+
+Kod yazilirken degil, **test edilirken** bulundu ikisi de:
+
+**1. `gen_metrics.json`'in ezilmesi.** `inpaint.py --resume` her sey bitmisken
+tekrar cagrilirsa metrik dosyasini sifir plakayi tarif eden bir dosyayla
+ezecekti — `scripts/budget.py`'nin dayandigi ve GPU-saatlerle elde edilmis
+sn/karo olcumunu yok ederek. Duzeltme: yapacak is yoksa **hicbir seye
+dokunmadan don**. Karar 3.53 bu olcumu bir olcum olarak tanimliyor; bir no-op
+onu ezemez.
+
+**2. Kilit acligi.** Iki cron girdisi ayni dakikada atesleniyor ve
+`run_queue.sh` listede once. Kuyrugu taramak bir saniye surse bile kilidi o
+aliyor; `gen_queue.sh` `flock -n` ile o kilidi gorup hemen cikiyordu, sonra
+`run_queue` bitiyor ve kart 15 dakika bos kaliyordu — **her turda, sonsuza
+kadar. Uretim hic baslamazdi.** Duzeltme: `flock -w 180`. Uc dakika beklemek
+taramayi kapsiyor; egitim gercekten kosuyorsa bekleme doluyor ve tik cikiyor.
+
+Ikisi de sahte bir depoda, sahte train/eval/inpaint script'leriyle yapilan
+davranis testlerinde ortaya cikti. Ilke 1'in bir baska yuzu: bir script'in
+dogru oldugunu dusunmek, dogru oldugunu olcmek degil.
+
+| # | Karar / bulgu | Gerekce |
+|---|---|---|
+| 3.98 | **Ultralytics'in `copy_paste`'i detect etiketleriyle olu kod.** `segments` yalnizca poligon etiketlerde doluyor, bizim etiketler bes sutun. Kol uyguladigi seyin adiyla **M (mosaic + mixup)** oldu; copy-paste ayri ve offline bir kol olarak olculecek. | Config'in kendi uyarisi kosulari harcamadan once denetlendi. Sessizce etkisiz bir temel kol, difuzyonun lehine sahte kazanc uretir — "the most dangerous mistake of all" diye yazmisti, hakliydi. |
+| 3.98a | **B kolu (oteleme + olcek) G25'e 0,01710 fark atiyor**, her iki esigin ustunde (t = 8,64, df = 6). Egri uzerinde **1.513 goruntu esdegeri** — 746 ile egitilmis bir kol icin 767 goruntu kazanci. | Bir yariya inisin maliyeti 0,0185; artirmanin kazanci 0,0171. Sentetik verinin asmasi gereken cubuk artik bir rakam, ve dusuk degil. |
+| 3.98b | **Kucuk nesnelerde artirma iki kat fazla yariyor ve fark AYIRT EDILIYOR** (+0,03543, birlesik 2σ'nin 2,1 kati). | Gercek-veri kollarinda kucuk nesne farklari hep esigin altinda kalmisti (3.96b, 3.97h). Ilk kez ayirt edilen bir kucuk-nesne farki. |
+| 3.98c | **B'nin σ'si (0,00044) epoch tavaninin eseri, olcum kararliliginin degil** — ucun ikisi 150/150, biri 142. Kolun kendi esigi kullanilmayacak; 0,68147 bir alt sinir. | G25 kollari 89-109 epoch'ta `patience` ile durmustu. Ayni yerde duran kosularda erken-durdurma oynakligi kayboluyor. `+S` kollari da tavana carpabilir; tabloda isaretlenecek. |
+| 3.99 | **Uretim LoRA'si: 1500 adim.** Bes gerekce: (1) dort seviyenin dordunde de var, ck4500 yalnizca 100'de; (2) hicbir kontrol noktasi kapiyi gecmedi; (3) 4500'un kazandirdigi ayrim buyuk olcude doku artefakti (%92 → %15); (4) 4500'un guven araligi %7-77, hicbir sey soylemiyor; (5) sadakatte 1500 kazaniyor (87,5 vs gercek 88,8; 4500 → 145,7). | **Bu, 3.89'un vaat ettigi karsi karsiya olcum DEGIL** — eldeki kanitla, takvim baskisi altinda verilmis bir karar ve boyle kaydedilmistir. Karsilastirma sonra kosabilir; 4500 kazanirsa tek bir kolun yeniden uretilmesi gerekir. |
+| 3.100 | **Gozetimsiz calisma altyapisi:** swap 4 → 20 GB; `run_queue.sh` ve `gen_queue.sh` (bos gecirmez, `set -e` yok, adim basina ikinci deneme, durum dosyasi); `inpaint.py --resume`; cron 15 dakikada bir denetleyici. | 13 Eylul'de cekirdek OOM katili `evaluate.py`'yi (9,35 GB) oldurdu, `set -e` kalan iki tohumu iptal etti, bekleyen zincir de ayni grupta gitti, kart 10,5 saat bos bekledi. Gozetimsiz bir kuyruk **her sey tarafindan** yeniden baslatilabilir olmali. |
+| 3.100a | **`inpaint.py --resume` her sey bitmisken `gen_metrics.json`'a DOKUNMUYOR.** | Aksi halde bir cron turu, GPU-saatlerle elde edilmis sn/karo olcumunu sifir plakayi tarif eden bir dosyayla ezecekti (3.53). Testte yakalandi. |
+| 3.100b | **`gen_queue.sh` kilidi `flock -w 180` ile bekliyor, `-n` ile denemiyor.** | `-n` ile uretim **hic baslamazdi**: `run_queue.sh` cron'da once ve bir saniyelik taramada bile kilidi aliyor, gen tiki gorup cikiyor, kart 15 dakika bos — her turda. Testte yakalandi. |
+| 3.100c | **Seviye basina tek sentetik havuz, kollar ic ice alt kume aliyor** (1120 ⊂ 2240 ⊂ 4481). | Miktar taramasi sentetik verinin MIKTARININ etkisini soruyor; uc bagimsiz havuz uretmek uretim-arasi degiskenligi miktarla karistirirdi. Ayrica 40 GPU-saatlik uretimi 34'e indiriyor. |
+| 3.101 | **Sentetik kollar egitilebilir hale geldi:** `train.py --train-list`, ve listeyi kuran `scripts/make_arm_lists.py`. Kolun bilesimi listenin yanindaki `<liste>.json`'da duruyor ve `run_metrics.json`'a kopyalaniyor (`n_real`, `n_synth`). | `train.py` egitim kumesini `--level`'dan TURETIYORDU ve bir `+S` kolu bu dilde soylenemiyordu. Ikame egrisi tam da bu iki sayi hakkinda bir iddia; onlari kaydetmeden kol raporlamak, soruyu yazmadan cevap yazmak olurdu. |
+| 3.101a | **Her kol kendi seviyesinin havuzundan cekiyor** (3.2, 3.7). Havuz bitmemisse kol **ertelenir, dusmez.** | Bir G25 kolunu lora_100 havuzundan beslemek, %25 alt kumesinin disindaki goruntulerin bilgisini egitime sokardi — protokolun onlemek icin var oldugu kacak. Uretim on saatler suruyor, "henuz degil" bir hata degil. |
+| 3.102 | **`scripts/status.py`:** kart, su an ne kosuyor, uretim nerede, hangi kol listeleri hazir, Faz 6'nin kacta kaci bitti ve **cozulmemis** hatalar — tek ekranda. | Cevap alti yere yayilmisti ve elle toplamak okumaktan uzun suruyordu; gunlerce kendi basina calisacak bir proje icin kotu bir ozellik. Cozulmus gecici hatalar listelenmez, yoksa kendi kendine duzelmis bir sey icin endise edilir. |
+
+### Faz 6'da neredeyiz
+
+```
+✅ G100  s0..s4     5 kosu   esik 0,00711
+✅ G50   s0..s4     5 kosu   esik 0,00569
+✅ G25   s0..s4     5 kosu   esik 0,00762
+✅ G10   s0..s4     5 kosu   esik 0,01910
+✅ B_G25 s0..s2     3 kosu   +0,01710 vs G25  (1.513 esdeger)
+🔄 M_G25 s0..s2     3 kosu   kosuyor
+⬜ sentetik        26 kosu   uretim + egitim kuyrukta
+────────────────────────────────────────────────
+   23/52 kosu
+```
+
+Uretim 11.650 sentetik plaka, ~34 GPU-saat. Kuyruk sirasi: level 100 → S100'un
+bes kosusu → level 10 → G10+S → level 25 → G25+S. Egitim ve uretim ayni kilidi
+paylasiyor, biri biter digeri devralir.
