@@ -74,9 +74,18 @@ LEVELS="100:2987 10:2688 25:4481 50:1494"
 cd "$ROOT" 2>/dev/null || { echo "ERROR: $ROOT not found"; exit 1; }
 mkdir -p "$LOGDIR"
 
+# WAIT for the lock, do not give up on it instantly.
+#
+# Both supervisors fire on the same cron minute and run_queue.sh is listed
+# first, so it takes the lock even when all it does is scan the queue and find
+# every run deferred -- about one second of work. A `flock -n` here would see
+# that lock, exit, and the GPU would then sit idle until the next tick, every
+# tick, forever: generation would never start at all. Waiting three minutes
+# costs nothing and covers the scan; when training is genuinely running the
+# wait expires and this tick exits, which is the behaviour we want.
 exec 9>"$LOCK" || exit 1
-if ! flock -n 9; then
-    exit 0                        # training (or another generation tick) has it
+if ! flock -w 180 9; then
+    exit 0                        # training holds it for real
 fi
 
 say()  { echo "$(date -Is) [gen] $*" | tee -a "$LOGDIR/gen.log"; }
@@ -162,6 +171,12 @@ for entry in $LEVELS; do
     if [ "$have" -ge "$N" ]; then
         say "level $L: COMPLETE ($have plates)"
         mark "L$L" "inpaint_complete"
+        # Build every arm list this level has just made possible (3.101). Doing
+        # it here rather than at the very end means the training queue can start
+        # on level 100's arms while level 25 is still generating -- the GPU never
+        # waits for work that already exists.
+        python scripts/make_arm_lists.py >> "$LOGDIR/arm_lists.log" 2>&1 \
+            && say "arm lists rebuilt" || say "make_arm_lists.py FAILED -- see logs/arm_lists.log"
     else
         # Not an error worth stopping for: a kill mid-generation leaves real
         # work on disk and the next tick continues from it. Only report.
@@ -171,4 +186,5 @@ for entry in $LEVELS; do
     fi
 done
 
+python scripts/make_arm_lists.py >> "$LOGDIR/arm_lists.log" 2>&1 || true
 say "=== generation queue end ==="

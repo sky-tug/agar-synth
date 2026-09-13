@@ -172,6 +172,18 @@ def main():
     ap.add_argument("--overlay", help="augmentation arm (e.g. aug_b_classic.yaml)")
     ap.add_argument("--level", type=int, default=100,
                     choices=[100, 50, 25, 10], help="real data level (%%)")
+    # Decision 3.101. Until now the training set was DERIVED from --level, which
+    # made the synthetic arms of the grid unreachable: a "+S" arm trains on a
+    # real subset PLUS synthetic plates, and no --level can name that. The list
+    # is built by scripts/make_arm_lists.py, which also writes a sidecar
+    # <list>.json describing what went into it (how many real, how many
+    # synthetic, from which pool, with which seed) -- so the composition lives
+    # with the list instead of being inferred from an arm's name.
+    # --level is still required and still recorded: it says which level's real
+    # subset and which per-level LoRA the arm is built on (decisions 3.2, 3.7).
+    ap.add_argument("--train-list",
+                    help="train on this list instead of the one --level implies "
+                         "(synthetic arms; see scripts/make_arm_lists.py)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--name", required=True, help="run name -> runs/<name>")
     ap.add_argument("--epochs", type=int, help="override the config (for the smoke test)")
@@ -231,8 +243,35 @@ def main():
     data_root = (ROOT / cfg["data"]["root"]).resolve()
     names = cfg["data"]["names"]
 
-    train_list = list_path(data_root, args.level)
+    # Decision 3.101: an explicit list wins over the one --level implies.
+    arm_meta = None
+    if args.train_list:
+        train_list = Path(args.train_list).expanduser().resolve()
+        if not train_list.exists():
+            sys.exit(f"ERROR: --train-list {train_list} does not exist.\n"
+                     f"  Build the synthetic arms' lists first:\n"
+                     f"    python scripts/make_arm_lists.py")
+        side = train_list.with_suffix(train_list.suffix + ".json")
+        if side.exists():
+            arm_meta = json.loads(side.read_text(encoding="utf-8"))
+        else:
+            # Not fatal, but say so: without the sidecar nothing in
+            # run_metrics.json records HOW MUCH of this list was synthetic, and
+            # that is the one number the whole substitution curve is about.
+            print(f"  [!] no sidecar next to {train_list.name}: the real/synthetic "
+                  f"composition will NOT be recorded in run_metrics.json")
+    else:
+        train_list = list_path(data_root, args.level)
     n_train = validate_list(train_list, data_root)
+
+    # The list may point outside data_root (synthetic plates live under
+    # src/generate/synth_g<level>/). validate_list already proved every label
+    # is where Ultralytics will look for it, so this is only a consistency
+    # check against the sidecar's own count.
+    if arm_meta and arm_meta.get("n_total") not in (None, n_train):
+        sys.exit(f"ERROR: {train_list.name} holds {n_train} paths but its "
+                 f"sidecar claims {arm_meta['n_total']}. One of them is stale; "
+                 f"re-run scripts/make_arm_lists.py.")
 
     val_list = data_root / "lists" / "val.txt"
     val_empty = (not val_list.exists()
@@ -427,6 +466,15 @@ def main():
         "level": args.level,
         "seed": args.seed,
         "overlay": args.overlay,
+        # Decision 3.101: for a synthetic arm the arm's identity is the LIST,
+        # not --level. Both are recorded, and the sidecar's composition is
+        # copied in so that results/table.csv can carry n_real / n_synth
+        # without opening a second file.
+        "train_list": str(train_list),
+        "arm": (arm_meta or {}).get("arm"),
+        "n_real": (arm_meta or {}).get("n_real"),
+        "n_synth": (arm_meta or {}).get("n_synth"),
+        "synth_source": (arm_meta or {}).get("synth_source"),
         "n_train": n_train,
         "n_val": n_val,
         "imgsz": t["imgsz"],

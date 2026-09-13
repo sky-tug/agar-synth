@@ -1,38 +1,82 @@
 # =============================================================================
 # Run queue -- consumed by scripts/run_queue.sh
 # =============================================================================
-# Format:  <name>  <level>  <seed>  <overlay|->
+# Format:  <name>  <level>  <seed>  <overlay|->  <train-list|->
 #
-# Execution follows this order, and the order is the priority: the queue may
+# Execution follows this order, and the order IS the priority: the window may
 # not reach the end, so whatever answers the question comes first.
 #
 # Safe to edit while the queue is running -- the next tick re-reads the file,
 # and a run that already has runs/<name>/eval_val/summary.json is skipped.
-# Adding a line is how you extend the queue; there is no other step.
+# A run whose train-list does not exist yet is deferred, not failed: its
+# synthetic plates are still being generated and the next tick looks again.
 # =============================================================================
 
-# --- classical augmentation controls (Phase 6) -------------------------------
-# These answer the sharpest objection to the whole project: that a cheap
-# augmentation pipeline buys what diffusion buys, for none of the cost.
-# B_G25_s0 is already trained; listed anyway so that if its evaluation is
-# still missing the queue finishes it rather than leaving a run half-measured.
-B_G25_s0      25    0    aug_b_classic.yaml
-B_G25_s1      25    1    aug_b_classic.yaml
-B_G25_s2      25    2    aug_b_classic.yaml
+# --- classical augmentation controls ----------------------------------------
+# The sharpest objection to this whole project: that a cheap augmentation
+# pipeline buys what diffusion buys, for none of the cost. B_G25_s0 already
+# measured +0.0176 over G25 -- 2.3x that arm's threshold, and equivalent to
+# 796 extra real images on the substitution curve. This is the bar synthetic
+# data has to clear.
+B_G25_s0              25    0    aug_b_classic.yaml       -
+B_G25_s1              25    1    aug_b_classic.yaml       -
+B_G25_s2              25    2    aug_b_classic.yaml       -
 
 # The arm formerly called C. Ultralytics' copy_paste is a no-op on
-# detect-format labels (decision 3.98), so this arm is named for what it
-# actually applies: mosaic and mixup.
-M_G25_s0      25    0    aug_m_mosaic_mixup.yaml
-M_G25_s1      25    1    aug_m_mosaic_mixup.yaml
-M_G25_s2      25    2    aug_m_mosaic_mixup.yaml
+# detect-format labels (3.98), so this arm is named for what it applies.
+M_G25_s0              25    0    aug_m_mosaic_mixup.yaml  -
+M_G25_s1              25    1    aug_m_mosaic_mixup.yaml  -
+M_G25_s2              25    2    aug_m_mosaic_mixup.yaml  -
 
-# --- synthetic arms ----------------------------------------------------------
-# Blocked on decision 3.89 (which LoRA checkpoint goes into production) and on
-# the generation that follows it. Append them here once that is settled; the
-# order below is the intended one -- S100 and G10+S first, because they are
-# where synthetic substitution either shows up or does not.
+# --- synthetic arms ---------------------------------------------------------
+# Each of these trains on a real subset PLUS synthetic plates, topped up to the
+# full-data size (2,987 images), so every one of them costs a full G100 run.
+# The list is built by scripts/make_arm_lists.py as generation finishes each
+# level, and gen_queue.sh calls it automatically.
 #
-# S100_s0     100   0    -
-# G10+S_s0    100   0    -
-# ...
+# Order is deliberate. Generation produces level 100 first, then 10, then 25,
+# then 50, and the training queue holds the GPU whenever it has work -- so the
+# two arms that decide the paper come out COMPLETE and early rather than six
+# arms coming out half-measured:
+#
+#   S100   does synthetic data work AT ALL, on its own, with no real images?
+#   G10+S  does it help where real data is scarcest -- the case for the method
+#   G25+S  the midpoint, directly comparable with the B and M arms above
+#
+# The amount sweep and G50+S come last: "how much synthetic is best" and "does
+# it help when you already have half the real data" are refinements, not the
+# claim.
+
+S100_s0              100    0    -    arm_S100.txt
+S100_s1              100    1    -    arm_S100.txt
+S100_s2              100    2    -    arm_S100.txt
+S100_s3              100    3    -    arm_S100.txt
+S100_s4              100    4    -    arm_S100.txt
+
+G10plusS_s0           10    0    -    arm_G10plusS.txt
+G10plusS_s1           10    1    -    arm_G10plusS.txt
+G10plusS_s2           10    2    -    arm_G10plusS.txt
+G10plusS_s3           10    3    -    arm_G10plusS.txt
+G10plusS_s4           10    4    -    arm_G10plusS.txt
+
+G25plusS_s0           25    0    -    arm_G25plusS.txt
+G25plusS_s1           25    1    -    arm_G25plusS.txt
+G25plusS_s2           25    2    -    arm_G25plusS.txt
+G25plusS_s3           25    3    -    arm_G25plusS.txt
+G25plusS_s4           25    4    -    arm_G25plusS.txt
+
+# Amount sweep: three seeds each (as budget.py specifies), nested subsets of
+# the same level-25 pool so that quantity is the only thing that varies.
+G25plusS_05x_s0       25    0    -    arm_G25plusS_0.5x.txt
+G25plusS_05x_s1       25    1    -    arm_G25plusS_0.5x.txt
+G25plusS_05x_s2       25    2    -    arm_G25plusS_0.5x.txt
+
+G25plusS_2x_s0        25    0    -    arm_G25plusS_2x.txt
+G25plusS_2x_s1        25    1    -    arm_G25plusS_2x.txt
+G25plusS_2x_s2        25    2    -    arm_G25plusS_2x.txt
+
+G50plusS_s0           50    0    -    arm_G50plusS.txt
+G50plusS_s1           50    1    -    arm_G50plusS.txt
+G50plusS_s2           50    2    -    arm_G50plusS.txt
+G50plusS_s3           50    3    -    arm_G50plusS.txt
+G50plusS_s4           50    4    -    arm_G50plusS.txt

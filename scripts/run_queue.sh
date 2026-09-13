@@ -39,10 +39,15 @@
 # session crash -- which a nohup'd background job does not reliably do.
 #
 # QUEUE FILE FORMAT (default: queue.txt), whitespace separated, '#' comments:
-#   <name>      <level>  <seed>  <overlay|->
-#   B_G25_s1    25       1       aug_b_classic.yaml
-#   M_G25_s0    25       0       aug_m_mosaic_mixup.yaml
-#   G100_s0     100      0       -
+#   <name>      <level>  <seed>  <overlay|->           <train-list|->
+#   B_G25_s1    25       1       aug_b_classic.yaml    -
+#   G100_s0     100      0       -                     -
+#   S100_s0     100      0       -                     arm_S100.txt
+#
+# The fifth column is for the synthetic arms (decision 3.101): the arm IS a
+# list, built by scripts/make_arm_lists.py under data/processed/lists/. A run
+# whose list does not exist yet is DEFERRED, not failed -- generation is still
+# producing its plates, and the next tick will look again.
 #
 # Order in the file is the order of execution: put the runs that answer the
 # question first, because the queue may not finish.
@@ -92,10 +97,11 @@ say "memory: $(free -m | awk '/^Mem:/{print $7" MB available"}'), swap $(free -m
 
 done_n=0; fail_n=0; skip_n=0
 
-while read -r name level seed overlay _rest; do
+while read -r name level seed overlay trainlist _rest; do
     case "$name" in ''|\#*) continue ;; esac
     [ -z "$level" ] || [ -z "$seed" ] && { say "SKIP malformed line: $name"; continue; }
     overlay="${overlay:--}"
+    trainlist="${trainlist:--}"
 
     # --- already finished? --------------------------------------------------
     if [ -f "runs/$name/eval_val/summary.json" ]; then
@@ -120,6 +126,20 @@ while read -r name level seed overlay _rest; do
     ov=()
     [ "$overlay" != "-" ] && ov=(--overlay "configs/$overlay")
 
+    # Decision 3.101: a synthetic arm trains on an explicit list. If
+    # make_arm_lists.py has not been able to build it yet (its synthetic pool is
+    # still being generated) there is nothing wrong -- wait, do not fail.
+    tl=()
+    if [ "$trainlist" != "-" ]; then
+        tlp="data/processed/lists/$trainlist"
+        if [ ! -f "$tlp" ]; then
+            say "$name: waiting for $trainlist (generation not finished)"
+            mark "$name" "deferred_no_list"
+            continue
+        fi
+        tl=(--train-list "$tlp")
+    fi
+
     # --- training -----------------------------------------------------------
     if [ -f "runs/$name/run_metrics.json" ]; then
         say "$name: training already complete"
@@ -133,6 +153,7 @@ while read -r name level seed overlay _rest; do
             [ -f "runs/$name/weights/last.pt" ] && res=(--resume)
             say "$name: train attempt $attempt ${res[*]}"
             python scripts/train.py --config configs/base.yaml "${ov[@]}" \
+                "${tl[@]}" \
                 --level "$level" --seed "$seed" --name "$name" "${res[@]}" \
                 >> "$LOGDIR/$name.log" 2>&1
             if [ -f "runs/$name/run_metrics.json" ]; then
